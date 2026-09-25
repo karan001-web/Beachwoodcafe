@@ -667,15 +667,15 @@ export function AdminPage() {
   };
 
   // Order status update
-  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
-    adminStore.updateOrderStatus(orderId, status);
+  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus, orderNumber?: string) => {
+    adminStore.updateOrderStatus(orderId, status, orderNumber);
     loadData();
     showNotification(`Order status updated to "${status.toUpperCase()}"`);
     if (
       selectedOrder &&
       (selectedOrder.id === orderId ||
-        selectedOrder.orderNumber === orderId ||
-        selectedOrder.orderNumber.replace(/^#/, "") === orderId.replace(/^#/, ""))
+        (orderNumber && selectedOrder.orderNumber === orderNumber) ||
+        selectedOrder.orderNumber.replace(/^#/, "") === (orderNumber || orderId).replace(/^#/, ""))
     ) {
       setSelectedOrder((prev) => (prev ? { ...prev, status } : null));
     }
@@ -1944,7 +1944,7 @@ export function AdminPage() {
                         <select
                           value={ord.status}
                           onChange={(e) =>
-                            handleUpdateOrderStatus(ord.id, e.target.value as OrderStatus)
+                            handleUpdateOrderStatus(ord.id, e.target.value as OrderStatus, ord.orderNumber)
                           }
                           className={`text-xs font-extrabold uppercase rounded-lg px-2.5 py-1 border cursor-pointer focus:outline-none ${
                             ord.status === "pending"
@@ -2643,7 +2643,7 @@ export function AdminPage() {
                 {(["pending", "kitchen", "ready", "completed", "cancelled"] as const).map((st) => (
                   <button
                     key={st}
-                    onClick={() => handleUpdateOrderStatus(selectedOrder.id, st)}
+                    onClick={() => handleUpdateOrderStatus(selectedOrder.id, st, selectedOrder.orderNumber)}
                     className={`px-2 py-1 rounded text-[0.68rem] font-extrabold uppercase transition-colors cursor-pointer ${
                       selectedOrder.status === st
                         ? "bg-[#1a3b6b] text-white shadow-xs"

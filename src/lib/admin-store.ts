@@ -450,16 +450,18 @@ export const adminStore = {
     return newOrder;
   },
 
-  updateOrderStatus(orderId: string, status: OrderStatus): boolean {
+  updateOrderStatus(orderId: string, status: OrderStatus, orderNumber?: string): boolean {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
     const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
-    const idx = orders.findIndex(
-      (o) =>
-        o.id === orderId ||
-        o.orderNumber === orderId ||
-        (o.id && o.id.toLowerCase() === cleanId) ||
-        (o.orderNumber && o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanId)
-    );
+    const cleanNum = orderNumber ? String(orderNumber).trim().toLowerCase().replace(/^#/, "") : "";
+
+    const idx = orders.findIndex((o) => {
+      const oId = (o.id || "").trim().toLowerCase();
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      if (cleanId && (oId === cleanId || oNum === cleanId)) return true;
+      if (cleanNum && (oNum === cleanNum || oId === cleanNum)) return true;
+      return false;
+    });
     if (idx === -1 || !orders[idx]) return false;
 
     orders[idx]!.status = status;
@@ -511,11 +513,16 @@ export const adminStore = {
     reason?: string
   ): { success: boolean; message: string; order?: AdminOrder } {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const idx = orders.findIndex(
-      (o) =>
+    const cleanIdentifier = String(orderIdentifier || "").trim().toLowerCase().replace(/^#/, "");
+    const idx = orders.findIndex((o) => {
+      const oId = (o.id || "").trim().toLowerCase();
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      return (
         o.id === orderIdentifier ||
-        o.orderNumber.toLowerCase() === orderIdentifier.toLowerCase().replace("#", "")
-    );
+        o.orderNumber === orderIdentifier ||
+        (cleanIdentifier && (oNum === cleanIdentifier || oId === cleanIdentifier))
+      );
+    });
 
     if (idx === -1 || !orders[idx]) {
       return { success: false, message: "Order not found. Please verify your order number." };
@@ -607,9 +614,16 @@ export const adminStore = {
     reason?: string
   ): { success: boolean; order?: AdminOrder } {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const idx = orders.findIndex(
-      (o) => o.id === orderIdentifier || o.orderNumber === orderIdentifier
-    );
+    const cleanIdentifier = String(orderIdentifier || "").trim().toLowerCase().replace(/^#/, "");
+    const idx = orders.findIndex((o) => {
+      const oId = (o.id || "").trim().toLowerCase();
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      return (
+        o.id === orderIdentifier ||
+        o.orderNumber === orderIdentifier ||
+        (cleanIdentifier && (oNum === cleanIdentifier || oId === cleanIdentifier))
+      );
+    });
     if (idx === -1 || !orders[idx]) return { success: false };
 
     const order = orders[idx]!;
@@ -656,17 +670,31 @@ export const adminStore = {
   // Search orders by orderNumber, id, or phone number
   findOrder(query: string): AdminOrder | undefined {
     if (!query || !query.trim()) return undefined;
-    const cleanQuery = query.trim().toLowerCase().replace("#", "");
+    const cleanQuery = query.trim().toLowerCase().replace(/^#/, "");
     const cleanDigits = query.replace(/\D/g, "");
+    const hasAlpha = /[a-zA-Z]/.test(query);
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
 
-    return orders.find((o) => {
-      if (o.orderNumber.toLowerCase() === cleanQuery) return true;
-      if (o.id.toLowerCase() === cleanQuery) return true;
-      if (cleanDigits.length >= 7 && o.customerPhone.replace(/\D/g, "").includes(cleanDigits))
-        return true;
-      return false;
+    // 1. Exact order number or ID match (highest priority)
+    const exactOrder = orders.find((o) => {
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const oId = (o.id || "").trim().toLowerCase();
+      return (oNum && oNum === cleanQuery) || (oId && oId === cleanQuery);
     });
+    if (exactOrder) return exactOrder;
+
+    // 2. Exact or clean phone number match (only if query doesn't look like an order ID and has 10+ digits)
+    if (!hasAlpha && cleanDigits.length >= 10) {
+      return orders.find((o) => {
+        const oPhone = (o.customerPhone || "").replace(/\D/g, "");
+        return (
+          oPhone.length >= 10 &&
+          (oPhone === cleanDigits || oPhone.endsWith(cleanDigits) || cleanDigits.endsWith(oPhone))
+        );
+      });
+    }
+
+    return undefined;
   },
 
   // Customer order history on this browser
@@ -677,8 +705,15 @@ export const adminStore = {
     const result: AdminOrder[] = [];
 
     for (const num of customerOrderIds) {
-      const match = orders.find((o) => o.orderNumber === num || o.id === num);
-      if (match) result.push(match);
+      const cleanTarget = String(num).replace(/^#/, "").trim().toLowerCase();
+      const match = orders.find((o) => {
+        const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+        const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+        return (oNum && oNum === cleanTarget) || (oId && oId === cleanTarget);
+      });
+      if (match && !result.some((r) => r.orderNumber === match.orderNumber)) {
+        result.push(match);
+      }
     }
 
     return result.sort((a, b) => b.timestamp - a.timestamp);
@@ -687,6 +722,19 @@ export const adminStore = {
   getCustomerLastOrderId(): string | null {
     if (typeof window === "undefined") return null;
     return localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+  },
+
+  recordCustomerOrderId(orderNumber: string) {
+    if (typeof window === "undefined" || !orderNumber) return;
+    try {
+      const cleanNum = orderNumber.trim();
+      const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+      if (!customerOrderIds.includes(cleanNum)) {
+        customerOrderIds.unshift(cleanNum);
+        safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, customerOrderIds.slice(0, 20));
+      }
+      localStorage.setItem(STORAGE_KEYS.LAST_ORDER_ID, cleanNum);
+    } catch {}
   },
 
   deleteOrder(orderId: string): boolean {
@@ -1385,6 +1433,8 @@ export const adminStore = {
 
       // Merge remote orders into local state
       const mergedOrders = [...localOrders];
+      const isUserAdmin = this.isAuthenticated();
+
       for (const remote of remoteOrders) {
         if (!remote) continue;
         const cleanRemoteNum = remote.orderNumber
@@ -1404,8 +1454,20 @@ export const adminStore = {
         });
 
         if (existingIdx === -1) {
-          mergedOrders.unshift(remote);
-          newOrdersCount++;
+          if (isUserAdmin) {
+            mergedOrders.unshift(remote);
+            newOrdersCount++;
+          } else {
+            const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+            const isMine = customerOrderIds.some((id) => {
+              const cleanId = String(id).replace(/^#/, "").trim().toLowerCase();
+              return cleanId === cleanRemoteNum || cleanId === cleanRemoteId;
+            });
+            if (isMine) {
+              mergedOrders.unshift(remote);
+              newOrdersCount++;
+            }
+          }
         } else {
           const current = mergedOrders[existingIdx];
           if (
@@ -1442,8 +1504,10 @@ export const adminStore = {
         });
 
         if (existingIdx === -1) {
-          mergedReservations.unshift(remote);
-          newReservationsCount++;
+          if (isUserAdmin) {
+            mergedReservations.unshift(remote);
+            newReservationsCount++;
+          }
         } else {
           const current = mergedReservations[existingIdx];
           if (current && remote.status !== current.status) {
@@ -1579,11 +1643,16 @@ export const adminStore = {
           safeSetJSON(STORAGE_KEYS.ORDERS, orders);
           window.dispatchEvent(
             new CustomEvent("bwc_order_change", {
-              detail: payload,
+              detail: {
+                ...payload,
+                orderNumber: orders[idx]!.orderNumber,
+                orderId: orders[idx]!.id,
+              },
             })
           );
         }
-      } else if (payload.order) {
+      } else if (payload.order && this.isAuthenticated()) {
+        // ONLY insert unknown foreign order into local storage if this device is authenticated ADMIN
         orders.unshift(payload.order);
         safeSetJSON(STORAGE_KEYS.ORDERS, orders);
         window.dispatchEvent(
@@ -1593,6 +1662,10 @@ export const adminStore = {
         );
       }
     } else if (type === "order_add" && payload.order) {
+      // Non-admin customer devices should NEVER insert stranger orders into local storage
+      if (!this.isAuthenticated()) {
+        return;
+      }
       const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const cleanIncoming = String(payload.order.orderNumber).replace(/^#/, "").trim().toLowerCase();
       const exists = orders.some(

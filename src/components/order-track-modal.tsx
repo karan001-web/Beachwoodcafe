@@ -67,12 +67,23 @@ export function OrderTrackModal({
   const refreshData = (forceOrderNumber?: string) => {
     const allOrders = adminStore.getOrders();
     let recents = adminStore.getCustomerRecentOrders();
-    if (recents.length === 0 && allOrders.length > 0) {
+    // Only fall back to allOrders if admin user is viewing the track modal
+    if (adminStore.isAuthenticated() && recents.length === 0 && allOrders.length > 0) {
       recents = allOrders.slice(0, 10);
     }
     setRecentOrders(recents);
 
-    // 1. If actively tracking an order, keep tracking THAT exact order
+    // 1. If a specific order was explicitly requested, prioritize it
+    if (forceOrderNumber) {
+      const match = adminStore.findOrder(forceOrderNumber);
+      if (match) {
+        setTargetOrderNumber(match.orderNumber);
+        setSelectedOrder(match);
+        return;
+      }
+    }
+
+    // 2. If actively tracking an order, keep tracking THAT exact order
     const activeTarget =
       targetOrderNumber ||
       initialOrderNumber ||
@@ -80,15 +91,6 @@ export function OrderTrackModal({
 
     if (activeTarget) {
       const match = adminStore.findOrder(activeTarget);
-      if (match) {
-        setSelectedOrder(match);
-        return;
-      }
-    }
-
-    // 2. If a specific order was explicitly requested
-    if (forceOrderNumber) {
-      const match = adminStore.findOrder(forceOrderNumber);
       if (match) {
         setTargetOrderNumber(match.orderNumber);
         setSelectedOrder(match);
@@ -153,14 +155,38 @@ export function OrderTrackModal({
 
     const handleOrderChange = (e?: any) => {
       const changedOrderNum = e?.detail?.orderNumber;
+      const changedOrderId = e?.detail?.orderId;
       const current = selectedOrderRef.current;
-      // If we have an active order, only refresh if the changed order is ours or global sync
-      if (
-        !current ||
-        !changedOrderNum ||
-        current.orderNumber.replace(/^#/, "").toLowerCase() ===
-          String(changedOrderNum).replace(/^#/, "").toLowerCase()
-      ) {
+
+      // If we are currently tracking an order:
+      if (current) {
+        const currentNum = current.orderNumber.replace(/^#/, "").trim().toLowerCase();
+        const currentId = current.id.trim().toLowerCase();
+
+        // If this event has a specific orderNumber or orderId, check if it belongs to OUR order
+        if (changedOrderNum || changedOrderId) {
+          const evNum = changedOrderNum ? String(changedOrderNum).replace(/^#/, "").trim().toLowerCase() : "";
+          const evId = changedOrderId ? String(changedOrderId).trim().toLowerCase() : "";
+
+          // If it is NOT our order, DO NOT change or switch our view!
+          if ((evNum && evNum !== currentNum) || (evId && evId !== currentId)) {
+            // Background update recent orders list without changing active order
+            const recents = adminStore.getCustomerRecentOrders();
+            setRecentOrders(recents);
+            return;
+          }
+        }
+
+        // It is our order, refresh its state in place
+        const refreshed =
+          adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id);
+        if (refreshed) {
+          setSelectedOrder(refreshed);
+        }
+        const recents = adminStore.getCustomerRecentOrders();
+        setRecentOrders(recents);
+      } else {
+        // No order selected yet, initial load
         refreshData();
       }
     };
@@ -209,7 +235,9 @@ export function OrderTrackModal({
     }
 
     if (found) {
+      setTargetOrderNumber(found.orderNumber);
       setSelectedOrder(found);
+      adminStore.recordCustomerOrderId(found.orderNumber);
       setSearchQuery("");
     } else {
       setSearchError(
@@ -235,7 +263,7 @@ export function OrderTrackModal({
     setSelectedOrder(updatedOrder);
 
     // 1. Update in local store & broadcast
-    adminStore.updateOrderStatus(selectedOrder.id, newStatus);
+    adminStore.updateOrderStatus(selectedOrder.id, newStatus, selectedOrder.orderNumber);
 
     // 2. Push update directly to server API
     try {

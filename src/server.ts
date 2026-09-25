@@ -188,12 +188,16 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
         const idx = serverOrders.findIndex((o) => {
           if (!o) return false;
-          if (orderId && o.id === orderId) return true;
-          if (orderNumber && o.orderNumber === orderNumber) return true;
           const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
           const oId = o.id ? String(o.id).trim().toLowerCase() : "";
-          if (cleanId && (oId === cleanId || oNum === cleanId)) return true;
-          if (cleanNum && (oId === cleanNum || oNum === cleanNum)) return true;
+
+          // Exact orderNumber matches take top priority
+          if (cleanNum && oNum === cleanNum) return true;
+          // Exact id matches next
+          if (cleanId && oId === cleanId) return true;
+          // Fallback cross matches
+          if (cleanNum && oId === cleanNum) return true;
+          if (cleanId && oNum === cleanId) return true;
           return false;
         });
 
