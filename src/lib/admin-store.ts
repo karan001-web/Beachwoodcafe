@@ -1,0 +1,1077 @@
+// Centralized Data Store for Beachwood Cafe Admin Panel
+// Handles Orders, Table Reservations, Website Visitors Analytics, and WhatsApp Click Tracking.
+
+export interface OrderItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+export type OrderStatus = "pending" | "kitchen" | "ready" | "completed" | "cancelled";
+
+export interface AdminOrder {
+  id: string;
+  orderNumber: string;
+  placedAt: string; // ISO string or formatted time
+  timestamp: number;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  fulfilmentType: "pickup" | "delivery";
+  deliveryAddress?: string;
+  deliveryApt?: string;
+  deliveryCity?: string;
+  deliveryZip?: string;
+  deliveryNotes?: string;
+  includeUtensils: boolean;
+  orderNote?: string;
+  paymentMethod: "prepay" | "counter";
+  cardLast4?: string;
+  items: OrderItem[];
+  subtotal: number;
+  discountAmount: number;
+  tax: number;
+  deliveryFee: number;
+  tipAmount: number;
+  grandTotal: number;
+  status: OrderStatus;
+  cancelledBy?: "customer" | "admin" | undefined;
+  cancelledAt?: number | undefined;
+  cancellationReason?: string | undefined;
+}
+
+export type ReservationStatus = "confirmed" | "seated" | "completed" | "cancelled";
+
+export interface AdminReservation {
+  id: string;
+  reservationNumber: string;
+  createdAt: string;
+  timestamp: number;
+  fullName: string;
+  phone: string;
+  email: string;
+  partySize: string;
+  date: string;
+  time: string;
+  seating: string;
+  specialRequests?: string | undefined;
+  status: ReservationStatus;
+}
+
+export interface VisitorLog {
+  id: string;
+  timestamp: number;
+  timeFormatted: string;
+  path: string;
+  device: "mobile" | "desktop" | "tablet";
+  visitorId: string;
+  referrer: string;
+}
+
+export interface WhatsAppClickLog {
+  id: string;
+  timestamp: number;
+  timeFormatted: string;
+  source: string;
+  path: string;
+  details?: string | undefined;
+}
+
+export interface MaintenanceConfig {
+  enabled: boolean;
+  message: string;
+  updatedAt: string;
+}
+
+export interface AdminNotification {
+  id: string;
+  type: "order" | "reservation" | "cancellation";
+  title: string;
+  message: string;
+  timestamp: number;
+  timeFormatted: string;
+  read: boolean;
+  referenceId: string;
+  data?: any;
+}
+
+const STORAGE_KEYS = {
+  ORDERS: "bwc_admin_orders_v1",
+  RESERVATIONS: "bwc_admin_reservations_v1",
+  VISITOR_LOGS: "bwc_admin_visitor_logs_v1",
+  VISITOR_COUNT: "bwc_admin_total_views_v1",
+  VISITOR_ID: "bwc_visitor_unique_id_v1",
+  WHATSAPP_LOGS: "bwc_admin_whatsapp_logs_v1",
+  ADMIN_AUTH: "bwc_admin_auth_session_v1",
+  ADMIN_CREDS: "bwc_admin_credentials_v1",
+  MAINTENANCE: "bwc_site_maintenance_mode_v1",
+  CUSTOMER_ORDER_IDS: "bwc_customer_order_ids_v1",
+  LAST_ORDER_ID: "bwc_last_placed_order_id",
+  NOTIFICATIONS: "bwc_admin_notifications_v1",
+  SOUND_ENABLED: "bwc_admin_sound_enabled_v1",
+};
+
+const DEFAULT_MAINTENANCE: MaintenanceConfig = {
+  enabled: false,
+  message:
+    "Beachwood Cafe online ordering and website are temporarily paused for maintenance. We will be back online shortly!",
+  updatedAt: "",
+};
+
+// Default Strong Credentials (can be updated in Admin Settings)
+const DEFAULT_CREDS = {
+  username: "778800",
+  password: "karan@4455",
+};
+
+// Helper: Safely get from localStorage
+function safeGetJSON<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    console.error(`Error reading ${key} from storage:`, e);
+    return fallback;
+  }
+}
+
+// Helper: Safely save to localStorage
+function safeSetJSON(key: string, data: unknown) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.error(`Error saving ${key} to storage:`, e);
+  }
+}
+
+// ============================================================================
+// ADMIN STORE API
+// ============================================================================
+export const adminStore = {
+  // --------------------------------------------------------------------------
+  // 1. AUTHENTICATION
+  // --------------------------------------------------------------------------
+  getCredentials() {
+    const creds = safeGetJSON(STORAGE_KEYS.ADMIN_CREDS, DEFAULT_CREDS);
+    // If it was the previous default, migrate to the new configured credentials
+    if (creds && creds.username === "admin_beachwood") {
+      safeSetJSON(STORAGE_KEYS.ADMIN_CREDS, DEFAULT_CREDS);
+      return DEFAULT_CREDS;
+    }
+    return creds;
+  },
+
+  updateCredentials(newUsername: string, newPassword: string): boolean {
+    if (!newUsername.trim() || newPassword.length < 8) return false;
+    safeSetJSON(STORAGE_KEYS.ADMIN_CREDS, {
+      username: newUsername.trim(),
+      password: newPassword,
+    });
+    return true;
+  },
+
+  login(usernameInput: string, passwordInput: string): boolean {
+    const creds = this.getCredentials();
+    const isValid =
+      usernameInput.trim() === creds.username && passwordInput === creds.password;
+
+    if (isValid && typeof window !== "undefined") {
+      const token = {
+        authenticated: true,
+        username: creds.username,
+        loggedInAt: Date.now(),
+      };
+      sessionStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(token));
+      localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(token));
+    }
+    return isValid;
+  },
+
+  isAuthenticated(): boolean {
+    if (typeof window === "undefined") return false;
+    try {
+      const session =
+        sessionStorage.getItem(STORAGE_KEYS.ADMIN_AUTH) ||
+        localStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
+      if (!session) return false;
+      const parsed = JSON.parse(session);
+      return parsed && parsed.authenticated === true;
+    } catch {
+      return false;
+    }
+  },
+
+  logout() {
+    if (typeof window === "undefined") return;
+    sessionStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+    localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+  },
+
+  // --------------------------------------------------------------------------
+  // 1B. SITE STATUS / MAINTENANCE MODE TOGGLE
+  // --------------------------------------------------------------------------
+  getMaintenanceConfig(): MaintenanceConfig {
+    return safeGetJSON<MaintenanceConfig>(STORAGE_KEYS.MAINTENANCE, DEFAULT_MAINTENANCE);
+  },
+
+  setMaintenanceMode(enabled: boolean, message?: string): MaintenanceConfig {
+    const current = this.getMaintenanceConfig();
+    const updated: MaintenanceConfig = {
+      enabled,
+      message: message?.trim() || current.message || DEFAULT_MAINTENANCE.message,
+      updatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    safeSetJSON(STORAGE_KEYS.MAINTENANCE, updated);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("bwc_maintenance_change", { detail: updated }));
+    }
+    return updated;
+  },
+
+  // --------------------------------------------------------------------------
+  // 2. ONLINE ORDERS MANAGEMENT
+  // --------------------------------------------------------------------------
+  getOrders(): AdminOrder[] {
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    return orders.sort((a, b) => b.timestamp - a.timestamp);
+  },
+
+  addOrder(orderInput: Omit<AdminOrder, "id" | "timestamp" | "status">): AdminOrder {
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const newOrder: AdminOrder = {
+      ...orderInput,
+      id: "ord_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+      timestamp: Date.now(),
+      status: "pending",
+    };
+    orders.unshift(newOrder);
+    safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+
+    // Save to customer's local session history for easy tracking
+    if (typeof window !== "undefined") {
+      try {
+        const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+        if (!customerOrderIds.includes(newOrder.orderNumber)) {
+          customerOrderIds.unshift(newOrder.orderNumber);
+          safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, customerOrderIds.slice(0, 20));
+        }
+        localStorage.setItem(STORAGE_KEYS.LAST_ORDER_ID, newOrder.orderNumber);
+      } catch (err) {
+        console.error("Failed to store customer order id:", err);
+      }
+
+      // Automatically record an admin notification
+      this.addNotification({
+        type: "order",
+        title: "New Online Order Received!",
+        message: `Order #${newOrder.orderNumber} placed by ${newOrder.customerName} ($${newOrder.grandTotal.toFixed(2)} • ${newOrder.fulfilmentType.toUpperCase()})`,
+        referenceId: newOrder.orderNumber,
+        data: newOrder,
+      });
+
+      // Dispatch event for real-time instant sync
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", {
+          detail: {
+            orderNumber: newOrder.orderNumber,
+            action: "add",
+            order: newOrder,
+          },
+        })
+      );
+    }
+
+    return newOrder;
+  },
+
+  updateOrderStatus(orderId: string, status: OrderStatus): boolean {
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const idx = orders.findIndex((o) => o.id === orderId || o.orderNumber === orderId);
+    if (idx === -1 || !orders[idx]) return false;
+
+    orders[idx]!.status = status;
+    if (status === "cancelled" && !orders[idx]!.cancelledBy) {
+      orders[idx]!.cancelledBy = "admin";
+      orders[idx]!.cancelledAt = Date.now();
+      orders[idx]!.cancellationReason = "Cancelled manually by Cafe Staff / Admin";
+    }
+
+    safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", {
+          detail: {
+            orderNumber: orders[idx]!.orderNumber,
+            action: "status_update",
+            status,
+            order: orders[idx],
+          },
+        })
+      );
+    }
+
+    return true;
+  },
+
+  // Customer cancellation strictly within 1 minute (60 seconds)
+  cancelOrderByCustomer(
+    orderIdentifier: string,
+    reason?: string
+  ): { success: boolean; message: string; order?: AdminOrder } {
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const idx = orders.findIndex(
+      (o) =>
+        o.id === orderIdentifier ||
+        o.orderNumber.toLowerCase() === orderIdentifier.toLowerCase().replace("#", "")
+    );
+
+    if (idx === -1 || !orders[idx]) {
+      return { success: false, message: "Order not found. Please verify your order number." };
+    }
+
+    const order = orders[idx]!;
+
+    // Check if already cancelled
+    if (order.status === "cancelled") {
+      return {
+        success: false,
+        message: "This order has already been cancelled.",
+        order,
+      };
+    }
+
+    // 1-minute window check (60,000 milliseconds)
+    const elapsedMs = Date.now() - order.timestamp;
+    const ONE_MINUTE_MS = 60 * 1000;
+
+    if (elapsedMs > ONE_MINUTE_MS) {
+      const elapsedSec = Math.floor(elapsedMs / 1000);
+      return {
+        success: false,
+        message: `Cancellation window closed! More than 1 minute has passed (${elapsedSec}s). Your order has already been sent to the kitchen line. Please call the cafe for emergency changes.`,
+        order,
+      };
+    }
+
+    // Process valid cancellation
+    order.status = "cancelled";
+    order.cancelledBy = "customer";
+    order.cancelledAt = Date.now();
+    order.cancellationReason =
+      reason || "Cancelled directly by customer within 1-minute grace period";
+
+    safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+
+    // Instant real-time event dispatch for Admin Panel
+    if (typeof window !== "undefined") {
+      this.addNotification({
+        type: "cancellation",
+        title: "Order Cancelled by Customer!",
+        message: `Order #${order.orderNumber} was cancelled by customer (${Math.round(elapsedMs / 1000)}s after placement)`,
+        referenceId: order.orderNumber,
+        data: order,
+      });
+
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", {
+          detail: {
+            orderNumber: order.orderNumber,
+            action: "cancel",
+            by: "customer",
+            cancelledAt: order.cancelledAt,
+            elapsedSeconds: Math.round(elapsedMs / 1000),
+            order,
+          },
+        })
+      );
+    }
+
+    return {
+      success: true,
+      message: `Order #${order.orderNumber} was successfully cancelled. Staff has been notified immediately.`,
+      order,
+    };
+  },
+
+  // Admin cancellation
+  cancelOrderByAdmin(
+    orderIdentifier: string,
+    reason?: string
+  ): { success: boolean; order?: AdminOrder } {
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const idx = orders.findIndex(
+      (o) => o.id === orderIdentifier || o.orderNumber === orderIdentifier
+    );
+    if (idx === -1 || !orders[idx]) return { success: false };
+
+    const order = orders[idx]!;
+    order.status = "cancelled";
+    order.cancelledBy = "admin";
+    order.cancelledAt = Date.now();
+    order.cancellationReason = reason || "Cancelled by cafe management / admin";
+
+    safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", {
+          detail: {
+            orderNumber: order.orderNumber,
+            action: "cancel",
+            by: "admin",
+            cancelledAt: order.cancelledAt,
+            order,
+          },
+        })
+      );
+    }
+
+    return { success: true, order };
+  },
+
+  // Search orders by orderNumber, id, or phone number
+  findOrder(query: string): AdminOrder | undefined {
+    if (!query || !query.trim()) return undefined;
+    const cleanQuery = query.trim().toLowerCase().replace("#", "");
+    const cleanDigits = query.replace(/\D/g, "");
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+
+    return orders.find((o) => {
+      if (o.orderNumber.toLowerCase() === cleanQuery) return true;
+      if (o.id.toLowerCase() === cleanQuery) return true;
+      if (cleanDigits.length >= 7 && o.customerPhone.replace(/\D/g, "").includes(cleanDigits))
+        return true;
+      return false;
+    });
+  },
+
+  // Customer order history on this browser
+  getCustomerRecentOrders(): AdminOrder[] {
+    if (typeof window === "undefined") return [];
+    const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const result: AdminOrder[] = [];
+
+    for (const num of customerOrderIds) {
+      const match = orders.find((o) => o.orderNumber === num || o.id === num);
+      if (match) result.push(match);
+    }
+
+    return result.sort((a, b) => b.timestamp - a.timestamp);
+  },
+
+  getCustomerLastOrderId(): string | null {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+  },
+
+  deleteOrder(orderId: string): boolean {
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const filtered = orders.filter((o) => o.id !== orderId && o.orderNumber !== orderId);
+    safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", {
+          detail: { orderId, action: "delete" },
+        })
+      );
+    }
+
+    return true;
+  },
+
+  // --------------------------------------------------------------------------
+  // 3. TABLE RESERVATIONS MANAGEMENT
+  // --------------------------------------------------------------------------
+  getReservations(): AdminReservation[] {
+    const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    return reservations.sort((a, b) => b.timestamp - a.timestamp);
+  },
+
+  addReservation(
+    resInput: Omit<AdminReservation, "id" | "timestamp" | "status" | "reservationNumber">
+  ): AdminReservation {
+    const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    const randomNum = Math.floor(10000 + Math.random() * 90000);
+    const newRes: AdminReservation = {
+      ...resInput,
+      id: "res_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+      reservationNumber: `RES-${randomNum}`,
+      timestamp: Date.now(),
+      status: "confirmed",
+    };
+    reservations.unshift(newRes);
+    safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+
+    if (typeof window !== "undefined") {
+      this.addNotification({
+        type: "reservation",
+        title: "New Table Reservation!",
+        message: `Booking #${newRes.reservationNumber} for ${newRes.fullName} (${newRes.partySize} • ${newRes.date} at ${newRes.time})`,
+        referenceId: newRes.reservationNumber,
+        data: newRes,
+      });
+
+      window.dispatchEvent(
+        new CustomEvent("bwc_reservation_change", {
+          detail: {
+            reservationNumber: newRes.reservationNumber,
+            action: "add",
+            reservation: newRes,
+          },
+        })
+      );
+    }
+
+    return newRes;
+  },
+
+  updateReservationStatus(resId: string, status: ReservationStatus): boolean {
+    const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    const idx = reservations.findIndex(
+      (r) => r.id === resId || r.reservationNumber === resId
+    );
+    if (idx === -1 || !reservations[idx]) return false;
+    reservations[idx]!.status = status;
+    safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+    return true;
+  },
+
+  deleteReservation(resId: string): boolean {
+    const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    const filtered = reservations.filter(
+      (r) => r.id !== resId && r.reservationNumber !== resId
+    );
+    safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
+    return true;
+  },
+
+  // --------------------------------------------------------------------------
+  // 4. WEBSITE VISITORS & TRAFFIC ANALYTICS
+  // --------------------------------------------------------------------------
+  getVisitorId(): string {
+    if (typeof window === "undefined") return "server";
+    let id = localStorage.getItem(STORAGE_KEYS.VISITOR_ID);
+    if (!id) {
+      id = "vis_" + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+      localStorage.setItem(STORAGE_KEYS.VISITOR_ID, id);
+    }
+    return id;
+  },
+
+  trackPageView(path: string) {
+    if (typeof window === "undefined") return;
+    if (path.startsWith("/admin")) return; // Don't track admin views as public traffic
+
+    try {
+      const now = Date.now();
+      const visitorId = this.getVisitorId();
+
+      // Device detection
+      const ua = navigator.userAgent.toLowerCase();
+      let device: "mobile" | "desktop" | "tablet" = "desktop";
+      if (/tablet|ipad|playbook|silk/i.test(ua)) device = "tablet";
+      else if (/mobile|iphone|ipod|android|blackberry|iemobile/i.test(ua)) device = "mobile";
+
+      const log: VisitorLog = {
+        id: "view_" + now + "_" + Math.random().toString(36).substring(2, 6),
+        timestamp: now,
+        timeFormatted: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        path: path || "/",
+        device,
+        visitorId,
+        referrer: document.referrer ? new URL(document.referrer).hostname : "Direct Visit",
+      };
+
+      // Keep recent 200 logs
+      const logs = safeGetJSON<VisitorLog[]>(STORAGE_KEYS.VISITOR_LOGS, []);
+      logs.unshift(log);
+      if (logs.length > 200) logs.length = 200;
+      safeSetJSON(STORAGE_KEYS.VISITOR_LOGS, logs);
+
+      // Increment total views counter
+      const totalViews = parseInt(localStorage.getItem(STORAGE_KEYS.VISITOR_COUNT) || "0", 10);
+      localStorage.setItem(STORAGE_KEYS.VISITOR_COUNT, String(totalViews + 1));
+    } catch (e) {
+      console.error("Error tracking page view:", e);
+    }
+  },
+
+  getVisitorAnalytics() {
+    const logs = safeGetJSON<VisitorLog[]>(STORAGE_KEYS.VISITOR_LOGS, []);
+    const rawTotalViews = parseInt(
+      (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEYS.VISITOR_COUNT)) || "0",
+      10
+    );
+    const totalViews = Math.max(rawTotalViews, logs.length);
+
+    // Unique visitors set
+    const uniqueIds = new Set(logs.map((l) => l.visitorId));
+    const uniqueVisitors = Math.max(uniqueIds.size, totalViews > 0 ? 1 : 0);
+
+    // Page view counts
+    const pageCounts: Record<string, number> = {};
+    logs.forEach((l) => {
+      const key = l.path || "/";
+      pageCounts[key] = (pageCounts[key] || 0) + 1;
+    });
+
+    // Device counts
+    const deviceCounts = { desktop: 0, mobile: 0, tablet: 0 };
+    logs.forEach((l) => {
+      if (deviceCounts[l.device] !== undefined) {
+        deviceCounts[l.device]++;
+      } else {
+        deviceCounts.desktop++;
+      }
+    });
+
+    return {
+      totalViews,
+      uniqueVisitors,
+      logs: logs.slice(0, 50),
+      pageCounts,
+      deviceCounts,
+    };
+  },
+
+  // --------------------------------------------------------------------------
+  // 5. WHATSAPP BUTTON CLICK TRACKING
+  // --------------------------------------------------------------------------
+  trackWhatsAppClick(source: string, details?: string) {
+    if (typeof window === "undefined") return;
+
+    try {
+      const now = Date.now();
+      const currentPath = window.location.pathname || "/";
+
+      const clickEvent: WhatsAppClickLog = {
+        id: "wa_" + now + "_" + Math.random().toString(36).substring(2, 6),
+        timestamp: now,
+        timeFormatted: new Date().toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        source: source || "WhatsApp Link",
+        path: currentPath,
+        details,
+      };
+
+      const logs = safeGetJSON<WhatsAppClickLog[]>(STORAGE_KEYS.WHATSAPP_LOGS, []);
+      logs.unshift(clickEvent);
+      if (logs.length > 200) logs.length = 200;
+      safeSetJSON(STORAGE_KEYS.WHATSAPP_LOGS, logs);
+    } catch (e) {
+      console.error("Error tracking WhatsApp click:", e);
+    }
+  },
+
+  getWhatsAppAnalytics() {
+    const logs = safeGetJSON<WhatsAppClickLog[]>(STORAGE_KEYS.WHATSAPP_LOGS, []);
+    const sourceCounts: Record<string, number> = {};
+
+    logs.forEach((l) => {
+      const src = l.source || "General WhatsApp";
+      sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+    });
+
+    return {
+      totalClicks: logs.length,
+      logs: logs.slice(0, 50),
+      sourceCounts,
+    };
+  },
+
+  // --------------------------------------------------------------------------
+  // 6. CSV EXPORT UTILITIES
+  // --------------------------------------------------------------------------
+  exportOrdersToCSV() {
+    const orders = this.getOrders();
+    if (orders.length === 0) {
+      alert("No orders to export yet.");
+      return;
+    }
+
+    const headers = [
+      "Order ID",
+      "Date & Time",
+      "Customer Name",
+      "Phone",
+      "Email",
+      "Fulfilment",
+      "Address",
+      "Status",
+      "Items Count",
+      "Subtotal ($)",
+      "Tax ($)",
+      "Tip ($)",
+      "Delivery Fee ($)",
+      "Total Amount ($)",
+      "Payment Method",
+    ];
+
+    const rows = orders.map((o) => [
+      `"${o.orderNumber}"`,
+      `"${o.placedAt}"`,
+      `"${o.customerName.replace(/"/g, '""')}"`,
+      `"${o.customerPhone}"`,
+      `"${o.customerEmail}"`,
+      `"${o.fulfilmentType}"`,
+      `"${(o.deliveryAddress || "Pickup at Cafe").replace(/"/g, '""')}"`,
+      `"${o.status}"`,
+      o.items.reduce((s, i) => s + i.quantity, 0),
+      o.subtotal.toFixed(2),
+      o.tax.toFixed(2),
+      o.tipAmount.toFixed(2),
+      o.deliveryFee.toFixed(2),
+      o.grandTotal.toFixed(2),
+      `"${o.paymentMethod}"`,
+    ]);
+
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Beachwood_Orders_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  },
+
+  exportReservationsToCSV() {
+    const reservations = this.getReservations();
+    if (reservations.length === 0) {
+      alert("No reservations to export yet.");
+      return;
+    }
+
+    const headers = [
+      "Reservation ID",
+      "Guest Name",
+      "Phone",
+      "Email",
+      "Party Size",
+      "Date",
+      "Time",
+      "Seating Preference",
+      "Status",
+      "Special Requests",
+      "Booked On",
+    ];
+
+    const rows = reservations.map((r) => [
+      `"${r.reservationNumber}"`,
+      `"${r.fullName.replace(/"/g, '""')}"`,
+      `"${r.phone}"`,
+      `"${r.email}"`,
+      `"${r.partySize}"`,
+      `"${r.date}"`,
+      `"${r.time}"`,
+      `"${r.seating}"`,
+      `"${r.status}"`,
+      `"${(r.specialRequests || "").replace(/"/g, '""')}"`,
+      `"${r.createdAt}"`,
+    ]);
+
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute(
+      "download",
+      `Beachwood_Reservations_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  },
+
+  // --------------------------------------------------------------------------
+  // 7. SEED REALISTIC SAMPLE DATA FOR TESTING & DEMO
+  // --------------------------------------------------------------------------
+  seedSampleData() {
+    // Sample Orders
+    const sampleOrders: AdminOrder[] = [
+      {
+        id: "ord_sample_1",
+        orderNumber: "BWC-74921",
+        placedAt: "Today, 10:15 AM",
+        timestamp: Date.now() - 3600000 * 2,
+        customerName: "Sarah Jenkins",
+        customerPhone: "(323) 555-0142",
+        customerEmail: "sarah.j@gmail.com",
+        fulfilmentType: "pickup",
+        includeUtensils: true,
+        orderNote: "Extra salsa for the breakfast burrito please",
+        paymentMethod: "prepay",
+        cardLast4: "4242",
+        items: [
+          { name: "Beachwood Breakfast", quantity: 2, unitPrice: 18.0, total: 36.0 },
+          { name: "Lavender Honey Latte", quantity: 2, unitPrice: 6.5, total: 13.0 },
+        ],
+        subtotal: 49.0,
+        discountAmount: 0,
+        tax: 4.66,
+        deliveryFee: 0,
+        tipAmount: 7.35,
+        grandTotal: 61.01,
+        status: "ready",
+      },
+      {
+        id: "ord_sample_2",
+        orderNumber: "BWC-83910",
+        placedAt: "Today, 11:30 AM",
+        timestamp: Date.now() - 3600000 * 1,
+        customerName: "David Miller",
+        customerPhone: "(310) 555-8821",
+        customerEmail: "david.m@outlook.com",
+        fulfilmentType: "delivery",
+        deliveryAddress: "2840 Beachwood Dr",
+        deliveryApt: "Apt 204",
+        deliveryCity: "Los Angeles",
+        deliveryZip: "90068",
+        deliveryNotes: "Call when at gate, code #9941",
+        includeUtensils: true,
+        orderNote: "Gluten sensitive diner",
+        paymentMethod: "prepay",
+        cardLast4: "8821",
+        items: [
+          { name: "Avocado Toast", quantity: 1, unitPrice: 16.0, total: 16.0 },
+          { name: "Cold Brew Tonic", quantity: 2, unitPrice: 6.5, total: 13.0 },
+          { name: "Market Salad", quantity: 1, unitPrice: 17.0, total: 17.0 },
+        ],
+        subtotal: 46.0,
+        discountAmount: 4.6, // BEACHWOOD10 promo
+        tax: 3.93,
+        deliveryFee: 3.99,
+        tipAmount: 6.9,
+        grandTotal: 56.22,
+        status: "kitchen",
+      },
+      {
+        id: "ord_sample_3",
+        orderNumber: "BWC-91204",
+        placedAt: "Today, 12:05 PM",
+        timestamp: Date.now() - 1800000,
+        customerName: "Emma Watson",
+        customerPhone: "(424) 555-7391",
+        customerEmail: "emma.w@beachwood.la",
+        fulfilmentType: "pickup",
+        includeUtensils: false,
+        paymentMethod: "counter",
+        items: [
+          { name: "Chilaquiles Verdes", quantity: 1, unitPrice: 19.0, total: 19.0 },
+          { name: "Matcha Latte", quantity: 1, unitPrice: 7.0, total: 7.0 },
+        ],
+        subtotal: 26.0,
+        discountAmount: 0,
+        tax: 2.47,
+        deliveryFee: 0,
+        tipAmount: 3.9,
+        grandTotal: 32.37,
+        status: "pending",
+      },
+    ];
+
+    // Sample Reservations
+    const sampleReservations: AdminReservation[] = [
+      {
+        id: "res_sample_1",
+        reservationNumber: "RES-58192",
+        createdAt: "Today, 09:20 AM",
+        timestamp: Date.now() - 7200000,
+        fullName: "Michael Chang",
+        phone: "(323) 555-4819",
+        email: "mchang@designla.com",
+        partySize: "4 guests",
+        date: "Today",
+        time: "7:30 PM (Dinner)",
+        seating: "Outdoor Patio",
+        specialRequests: "Celebrating an anniversary, quiet table preferred",
+        status: "confirmed",
+      },
+      {
+        id: "res_sample_2",
+        reservationNumber: "RES-64019",
+        createdAt: "Today, 10:45 AM",
+        timestamp: Date.now() - 3600000,
+        fullName: "Jessica Alba",
+        phone: "(310) 555-9201",
+        email: "jalba@hollywood.com",
+        partySize: "2 guests",
+        date: "Tomorrow",
+        time: "11:00 AM (Brunch)",
+        seating: "Indoor Booth",
+        specialRequests: "High chair needed",
+        status: "confirmed",
+      },
+      {
+        id: "res_sample_3",
+        reservationNumber: "RES-71043",
+        createdAt: "Yesterday, 06:15 PM",
+        timestamp: Date.now() - 86400000,
+        fullName: "Robert Downey",
+        phone: "(213) 555-1122",
+        email: "robert.d@gmail.com",
+        partySize: "6 guests",
+        date: "Friday",
+        time: "8:00 PM (Dinner)",
+        seating: "Outdoor Patio",
+        specialRequests: "Chef choice wine pairing",
+        status: "seated",
+      },
+    ];
+
+    // Sample WhatsApp Clicks
+    const sampleWhatsAppClicks: WhatsAppClickLog[] = [
+      {
+        id: "wa_sample_1",
+        timestamp: Date.now() - 7200000,
+        timeFormatted: "Today, 09:45 AM",
+        source: "Menu Takeaway Order Modal",
+        path: "/menu",
+        details: "User initiated direct order chat",
+      },
+      {
+        id: "wa_sample_2",
+        timestamp: Date.now() - 5400000,
+        timeFormatted: "Today, 10:15 AM",
+        source: "Order Confirmation Screen (#BWC-74921)",
+        path: "/menu",
+        details: "Customer sent verified order receipt to WhatsApp",
+      },
+      {
+        id: "wa_sample_3",
+        timestamp: Date.now() - 2700000,
+        timeFormatted: "Today, 11:00 AM",
+        source: "Contact Page Direct WhatsApp",
+        path: "/contact",
+        details: "General inquiry from contact page",
+      },
+      {
+        id: "wa_sample_4",
+        timestamp: Date.now() - 900000,
+        timeFormatted: "Today, 11:30 AM",
+        source: "Homepage Bento Contact Card",
+        path: "/",
+        details: "Clicked WhatsApp from home page quick contact",
+      },
+    ];
+
+    // Seed into localStorage
+    safeSetJSON(STORAGE_KEYS.ORDERS, sampleOrders);
+    safeSetJSON(STORAGE_KEYS.RESERVATIONS, sampleReservations);
+    safeSetJSON(STORAGE_KEYS.WHATSAPP_LOGS, sampleWhatsAppClicks);
+
+    // Seed initial view counts if 0
+    const currentViews = parseInt(localStorage.getItem(STORAGE_KEYS.VISITOR_COUNT) || "0", 10);
+    if (currentViews < 25) {
+      localStorage.setItem(STORAGE_KEYS.VISITOR_COUNT, "48");
+      // Add a few sample pageview logs
+      const paths = ["/", "/menu", "/about", "/contact", "/gallery"];
+      const seedLogs: VisitorLog[] = paths.map((p, i) => ({
+        id: "seed_view_" + i,
+        timestamp: Date.now() - (i + 1) * 1200000,
+        timeFormatted: new Date(Date.now() - (i + 1) * 1200000).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        path: p,
+        device: i % 2 === 0 ? "mobile" : "desktop",
+        visitorId: "vis_demo_" + i,
+        referrer: i === 0 ? "google.com" : "instagram.com",
+      }));
+      safeSetJSON(STORAGE_KEYS.VISITOR_LOGS, seedLogs);
+    }
+
+    return true;
+  },
+
+  // Clear all data
+  clearAllData() {
+    safeSetJSON(STORAGE_KEYS.ORDERS, []);
+    safeSetJSON(STORAGE_KEYS.RESERVATIONS, []);
+    safeSetJSON(STORAGE_KEYS.WHATSAPP_LOGS, []);
+    safeSetJSON(STORAGE_KEYS.VISITOR_LOGS, []);
+    safeSetJSON(STORAGE_KEYS.NOTIFICATIONS, []);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEYS.VISITOR_COUNT, "0");
+    }
+  },
+
+  // --------------------------------------------------------------------------
+  // 7. REAL-TIME NOTIFICATIONS CENTER
+  // --------------------------------------------------------------------------
+  getNotifications(): AdminNotification[] {
+    const notifs = safeGetJSON<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
+    return notifs.sort((a, b) => b.timestamp - a.timestamp);
+  },
+
+  addNotification(
+    notifInput: Omit<AdminNotification, "id" | "timestamp" | "timeFormatted" | "read">
+  ): AdminNotification {
+    const notifs = safeGetJSON<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
+    const now = Date.now();
+    const newNotif: AdminNotification = {
+      ...notifInput,
+      id: "notif_" + now + "_" + Math.random().toString(36).substring(2, 6),
+      timestamp: now,
+      timeFormatted: new Date(now).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+      read: false,
+    };
+    notifs.unshift(newNotif);
+    safeSetJSON(STORAGE_KEYS.NOTIFICATIONS, notifs.slice(0, 40));
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bwc_notification_added", { detail: newNotif })
+      );
+    }
+    return newNotif;
+  },
+
+  markNotificationsRead(): void {
+    const notifs = safeGetJSON<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
+    const updated = notifs.map((n) => ({ ...n, read: true }));
+    safeSetJSON(STORAGE_KEYS.NOTIFICATIONS, updated);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("bwc_notification_updated"));
+    }
+  },
+
+  clearNotifications(): void {
+    safeSetJSON(STORAGE_KEYS.NOTIFICATIONS, []);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("bwc_notification_updated"));
+    }
+  },
+
+  isSoundAlertEnabled(): boolean {
+    if (typeof window === "undefined") return true;
+    const val = localStorage.getItem(STORAGE_KEYS.SOUND_ENABLED);
+    return val === null ? true : val === "true";
+  },
+
+  setSoundAlertEnabled(enabled: boolean): void {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(STORAGE_KEYS.SOUND_ENABLED, enabled ? "true" : "false");
+    window.dispatchEvent(
+      new CustomEvent("bwc_sound_preference_changed", { detail: { enabled } })
+    );
+  },
+};
