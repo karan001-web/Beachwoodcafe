@@ -41,13 +41,13 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
   const [touched, setTouched] = useState<FormTouched>({});
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   // Field validation helpers
   const isNameValid = fullName.trim().length >= 2;
   const rawPhoneDigits = phone.replace(/\D/g, "");
-  const isPhoneValid = rawPhoneDigits.length >= 10;
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const isEmailValid = emailRegex.test(email.trim());
+  const isPhoneValid = rawPhoneDigits.length >= 7;
+  const isEmailValid = email.trim().length >= 5 && email.includes("@") && email.includes(".");
 
   // Form validity
   const isFormValid = isNameValid && isPhoneValid && isEmailValid;
@@ -56,8 +56,23 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
     setTouched((prev) => ({ ...prev, [field]: true }));
   };
 
+  const handleAutofill = () => {
+    setFullName("Sarah Jenkins");
+    setPhone("(323) 555-0142");
+    setEmail("sarah.j@example.com");
+    setPartySize("2 guests");
+    setDate("Today");
+    setTime("7:30 PM (Dinner)");
+    setSeating("Outdoor Patio");
+    setSpecialRequests("Anniversary dinner, window or patio booth please.");
+    setTouched({});
+    setSubmitAttempted(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    setSubmitAttempted(true);
 
     // Mark all required fields as touched
     setTouched({
@@ -110,6 +125,7 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
     setSeating("Any Table");
     setSpecialRequests("");
     setTouched({});
+    setSubmitAttempted(false);
     setSubmitted(false);
     onClose();
   };
@@ -265,11 +281,22 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
               {/* Row 1: Guest Contact Information (Mandatory) */}
               <div className="space-y-3 pb-3 border-b border-[#e5dacf]">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-[0.68rem] font-bold uppercase tracking-[0.15em] text-[#1a3b6b]">
                     1. Guest Contact Information
                   </span>
-                  <span className="text-[0.62rem] text-rose-600 font-semibold">* All fields required</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAutofill}
+                      className="px-2 py-0.5 rounded-md bg-[#16a34a] hover:bg-[#15803d] text-white text-[0.65rem] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                      title="Autofill test guest information"
+                    >
+                      <Sparkles className="size-3" />
+                      <span>⚡ Quick Demo Fill</span>
+                    </button>
+                    <span className="text-[0.62rem] text-rose-600 font-semibold">* Required</span>
+                  </div>
                 </div>
 
                 {/* Full Name */}
@@ -345,7 +372,7 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                     {touched.phone && !isPhoneValid && (
                       <p className="text-[0.7rem] text-rose-600 flex items-center gap-1 mt-1 font-medium">
                         <AlertCircle className="size-3 shrink-0" />
-                        <span>Phone number is required (min. 10 digits).</span>
+                        <span>Phone number is required (min. 7 digits).</span>
                       </p>
                     )}
                   </div>
@@ -533,6 +560,31 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
 
               {/* Submit & Secondary Actions */}
               <div className="pt-2 space-y-2.5">
+                {/* Mobile Error Feedback Right Above Submit Button */}
+                {submitAttempted && !isFormValid && (
+                  <div className="p-3.5 rounded-xl bg-rose-50 border-2 border-rose-500 text-rose-800 text-xs space-y-2 animate-in fade-in">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-rose-600" />
+                      <div>
+                        <p className="font-bold text-rose-900">Please complete the required details:</p>
+                        <ul className="list-disc list-inside mt-1 space-y-0.5 text-[0.72rem]">
+                          {!isNameValid && <li>Enter your full name (at least 2 letters)</li>}
+                          {!isPhoneValid && <li>Enter a valid phone number (at least 7 digits)</li>}
+                          {!isEmailValid && <li>Enter a valid email address (e.g. name@example.com)</li>}
+                        </ul>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAutofill}
+                      className="w-full py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                    >
+                      <Sparkles className="size-3.5" />
+                      <span>⚡ Autofill Details to Book Table Instantly</span>
+                    </button>
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={isSubmitting}

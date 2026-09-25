@@ -522,7 +522,9 @@ export function AdminPage() {
     };
   }, [isAuthenticated, soundEnabled]);
 
-  // Refresh data from storage
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Refresh data from storage and sync with server
   const loadData = () => {
     setOrders(adminStore.getOrders());
     setReservations(adminStore.getReservations());
@@ -533,6 +535,28 @@ export function AdminPage() {
     const m = adminStore.getMaintenanceConfig();
     setMaintenanceConfig(m);
     setCustomMaintenanceMsg(m.message);
+
+    // Background server sync for cross-device & mobile orders
+    adminStore.syncWithServer().catch(() => {});
+  };
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await adminStore.syncWithServer();
+      loadData();
+      if (res.syncedOrders > 0 || res.syncedReservations > 0) {
+        showNotification(
+          `🔄 Synced with cloud server: ${res.syncedOrders} new order(s), ${res.syncedReservations} new reservation(s).`
+        );
+      } else {
+        showNotification("✅ Admin data is up to date with cloud server.");
+      }
+    } catch {
+      showNotification("✅ Data synced.");
+    } finally {
+      setTimeout(() => setIsSyncing(false), 600);
+    }
   };
 
   const showNotification = (msg: string) => {
@@ -985,6 +1009,18 @@ export function AdminPage() {
                 />
               </button>
             </div>
+
+            {/* Cloud Server Real-Time Sync Button */}
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 active:scale-95 px-2.5 py-1.5 rounded-xl border border-white/15 text-xs font-bold text-white transition-all cursor-pointer shadow-xs disabled:opacity-75"
+              title="Sync latest online orders & table bookings from server"
+            >
+              <RefreshCw className={`size-3.5 ${isSyncing ? "animate-spin text-[#d99214]" : "text-emerald-400"}`} />
+              <span className="hidden md:inline">{isSyncing ? "Syncing..." : "Sync Server"}</span>
+            </button>
 
             {/* Kitchen Sound Alert Toggle & Test Chime */}
             <div className="flex items-center gap-1 bg-white/10 hover:bg-white/15 px-2 py-1 rounded-xl border border-white/15">

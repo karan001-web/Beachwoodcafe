@@ -228,6 +228,50 @@ function safeSetJSON(key: string, data: unknown) {
 }
 
 // ============================================================================
+// CROSS-TAB BROADCAST CHANNEL (Instant sync across tabs & mobile views)
+// ============================================================================
+const SYNC_CHANNEL_NAME = "bwc_admin_sync_v1";
+let syncChannel: BroadcastChannel | null = null;
+
+if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
+  try {
+    syncChannel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+    syncChannel.onmessage = (event) => {
+      if (!event?.data) return;
+      const { type, payload } = event.data;
+      if (
+        type === "order_add" ||
+        type === "order_status" ||
+        type === "order_cancel" ||
+        type === "order_delete"
+      ) {
+        window.dispatchEvent(new CustomEvent("bwc_order_change", { detail: payload }));
+      } else if (
+        type === "reservation_add" ||
+        type === "reservation_status" ||
+        type === "reservation_delete"
+      ) {
+        window.dispatchEvent(new CustomEvent("bwc_reservation_change", { detail: payload }));
+      } else if (type === "notification_added") {
+        window.dispatchEvent(new CustomEvent("bwc_notification_added", { detail: payload }));
+      }
+    };
+  } catch (e) {
+    console.warn("Failed to initialize BroadcastChannel:", e);
+  }
+}
+
+function broadcastEvent(type: string, payload: any) {
+  if (syncChannel) {
+    try {
+      syncChannel.postMessage({ type, payload });
+    } catch (e) {
+      console.warn("BroadcastChannel postMessage error:", e);
+    }
+  }
+}
+
+// ============================================================================
 // ADMIN STORE API
 // ============================================================================
 export const adminStore = {
@@ -364,16 +408,28 @@ export const adminStore = {
         data: newOrder,
       });
 
-      // Dispatch event for real-time instant sync
+      const orderPayload = {
+        orderNumber: newOrder.orderNumber,
+        action: "add",
+        order: newOrder,
+      };
+
+      // Broadcast to other open tabs on this browser
+      broadcastEvent("order_add", orderPayload);
+
+      // Dispatch event for real-time instant local sync
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
-          detail: {
-            orderNumber: newOrder.orderNumber,
-            action: "add",
-            order: newOrder,
-          },
+          detail: orderPayload,
         })
       );
+
+      // Background sync to server API so other devices (admin computer/phone) receive it
+      fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: newOrder }),
+      }).catch((err) => console.warn("Background order sync to server:", err));
     }
 
     return newOrder;
@@ -394,16 +450,32 @@ export const adminStore = {
     safeSetJSON(STORAGE_KEYS.ORDERS, orders);
 
     if (typeof window !== "undefined") {
+      const payload = {
+        orderNumber: orders[idx]!.orderNumber,
+        action: "status_update",
+        status,
+        order: orders[idx],
+      };
+
+      broadcastEvent("order_status", payload);
+
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
-          detail: {
-            orderNumber: orders[idx]!.orderNumber,
-            action: "status_update",
-            status,
-            order: orders[idx],
-          },
+          detail: payload,
         })
       );
+
+      // Background sync to server
+      fetch("/api/orders/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: orders[idx]!.orderNumber,
+          status,
+          cancelledBy: orders[idx]!.cancelledBy,
+          cancellationReason: orders[idx]!.cancellationReason,
+        }),
+      }).catch((err) => console.warn("Background status sync to server:", err));
     }
 
     return true;
@@ -468,18 +540,34 @@ export const adminStore = {
         data: order,
       });
 
+      const cancelPayload = {
+        orderNumber: order.orderNumber,
+        action: "cancel",
+        by: "customer",
+        cancelledAt: order.cancelledAt,
+        elapsedSeconds: Math.round(elapsedMs / 1000),
+        order,
+      };
+
+      broadcastEvent("order_cancel", cancelPayload);
+
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
-          detail: {
-            orderNumber: order.orderNumber,
-            action: "cancel",
-            by: "customer",
-            cancelledAt: order.cancelledAt,
-            elapsedSeconds: Math.round(elapsedMs / 1000),
-            order,
-          },
+          detail: cancelPayload,
         })
       );
+
+      // Sync cancellation to server
+      fetch("/api/orders/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: order.orderNumber,
+          status: "cancelled",
+          cancelledBy: "customer",
+          cancellationReason: order.cancellationReason,
+        }),
+      }).catch((err) => console.warn("Background cancel sync to server:", err));
     }
 
     return {
@@ -509,17 +597,33 @@ export const adminStore = {
     safeSetJSON(STORAGE_KEYS.ORDERS, orders);
 
     if (typeof window !== "undefined") {
+      const cancelPayload = {
+        orderNumber: order.orderNumber,
+        action: "cancel",
+        by: "admin",
+        cancelledAt: order.cancelledAt,
+        order,
+      };
+
+      broadcastEvent("order_cancel", cancelPayload);
+
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
-          detail: {
-            orderNumber: order.orderNumber,
-            action: "cancel",
-            by: "admin",
-            cancelledAt: order.cancelledAt,
-            order,
-          },
+          detail: cancelPayload,
         })
       );
+
+      // Sync admin cancellation to server
+      fetch("/api/orders/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: order.orderNumber,
+          status: "cancelled",
+          cancelledBy: "admin",
+          cancellationReason: order.cancellationReason,
+        }),
+      }).catch((err) => console.warn("Background admin cancel sync to server:", err));
     }
 
     return { success: true, order };
@@ -609,15 +713,27 @@ export const adminStore = {
         data: newRes,
       });
 
+      const resPayload = {
+        reservationNumber: newRes.reservationNumber,
+        action: "add",
+        reservation: newRes,
+      };
+
+      // Broadcast across tabs
+      broadcastEvent("reservation_add", resPayload);
+
       window.dispatchEvent(
         new CustomEvent("bwc_reservation_change", {
-          detail: {
-            reservationNumber: newRes.reservationNumber,
-            action: "add",
-            reservation: newRes,
-          },
+          detail: resPayload,
         })
       );
+
+      // Background sync to server API so other devices receive it
+      fetch("/api/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservation: newRes }),
+      }).catch((err) => console.warn("Background reservation sync to server:", err));
     }
 
     return newRes;
@@ -631,6 +747,31 @@ export const adminStore = {
     if (idx === -1 || !reservations[idx]) return false;
     reservations[idx]!.status = status;
     safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+
+    if (typeof window !== "undefined") {
+      const payload = {
+        reservationNumber: reservations[idx]!.reservationNumber,
+        action: "status_update",
+        status,
+        reservation: reservations[idx],
+      };
+
+      broadcastEvent("reservation_status", payload);
+
+      window.dispatchEvent(
+        new CustomEvent("bwc_reservation_change", {
+          detail: payload,
+        })
+      );
+
+      // Background sync to server
+      fetch("/api/reservations/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resId: reservations[idx]!.reservationNumber, status }),
+      }).catch((err) => console.warn("Background status sync to server:", err));
+    }
+
     return true;
   },
 
@@ -640,6 +781,15 @@ export const adminStore = {
       (r) => r.id !== resId && r.reservationNumber !== resId
     );
     safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
+
+    if (typeof window !== "undefined") {
+      broadcastEvent("reservation_delete", { resId, action: "delete" });
+      window.dispatchEvent(
+        new CustomEvent("bwc_reservation_change", {
+          detail: { resId, action: "delete" },
+        })
+      );
+    }
     return true;
   },
 
@@ -1166,4 +1316,126 @@ export const adminStore = {
       new CustomEvent("bwc_sound_preference_changed", { detail: { enabled } })
     );
   },
+
+  // --------------------------------------------------------------------------
+  // 8. SERVER SYNCHRONIZATION (CROSS-DEVICE & MOBILE VIEW SYNC)
+  // --------------------------------------------------------------------------
+  async syncWithServer(): Promise<{ syncedOrders: number; syncedReservations: number }> {
+    if (typeof window === "undefined") return { syncedOrders: 0, syncedReservations: 0 };
+    try {
+      const localOrders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+      const localReservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+
+      // 1. Fetch remote orders and reservations from server
+      const res = await fetch("/api/sync", { cache: "no-store" });
+      if (!res.ok) return { syncedOrders: 0, syncedReservations: 0 };
+      const data = await res.json();
+      if (!data?.success) return { syncedOrders: 0, syncedReservations: 0 };
+
+      const remoteOrders: AdminOrder[] = Array.isArray(data.orders) ? data.orders : [];
+      const remoteReservations: AdminReservation[] = Array.isArray(data.reservations)
+        ? data.reservations
+        : [];
+
+      let newOrdersCount = 0;
+      let newReservationsCount = 0;
+
+      // Merge remote orders into local state
+      const mergedOrders = [...localOrders];
+      for (const remote of remoteOrders) {
+        const existingIdx = mergedOrders.findIndex(
+          (o) => o.id === remote.id || (remote.orderNumber && o.orderNumber === remote.orderNumber)
+        );
+        if (existingIdx === -1) {
+          mergedOrders.unshift(remote);
+          newOrdersCount++;
+        } else {
+          if (
+            remote.status !== mergedOrders[existingIdx]?.status ||
+            remote.cancelledBy !== mergedOrders[existingIdx]?.cancelledBy
+          ) {
+            mergedOrders[existingIdx] = { ...mergedOrders[existingIdx], ...remote };
+          }
+        }
+      }
+
+      // Merge remote reservations into local state
+      const mergedReservations = [...localReservations];
+      for (const remote of remoteReservations) {
+        const existingIdx = mergedReservations.findIndex(
+          (r) =>
+            r.id === remote.id ||
+            (remote.reservationNumber && r.reservationNumber === remote.reservationNumber)
+        );
+        if (existingIdx === -1) {
+          mergedReservations.unshift(remote);
+          newReservationsCount++;
+        } else {
+          if (remote.status !== mergedReservations[existingIdx]?.status) {
+            mergedReservations[existingIdx] = { ...mergedReservations[existingIdx], ...remote };
+          }
+        }
+      }
+
+      if (newOrdersCount > 0) {
+        safeSetJSON(
+          STORAGE_KEYS.ORDERS,
+          mergedOrders.sort((a, b) => b.timestamp - a.timestamp)
+        );
+        window.dispatchEvent(
+          new CustomEvent("bwc_order_change", {
+            detail: { action: "sync_merge", count: newOrdersCount },
+          })
+        );
+      }
+
+      if (newReservationsCount > 0) {
+        safeSetJSON(
+          STORAGE_KEYS.RESERVATIONS,
+          mergedReservations.sort((a, b) => b.timestamp - a.timestamp)
+        );
+        window.dispatchEvent(
+          new CustomEvent("bwc_reservation_change", {
+            detail: { action: "sync_merge", count: newReservationsCount },
+          })
+        );
+      }
+
+      // 2. Also ensure server has our local orders and reservations
+      const unpushedOrders = localOrders.filter(
+        (lo) => !remoteOrders.some((ro) => ro.orderNumber === lo.orderNumber || ro.id === lo.id)
+      );
+      if (unpushedOrders.length > 0) {
+        fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orders: unpushedOrders }),
+        }).catch(() => {});
+      }
+
+      const unpushedReservations = localReservations.filter(
+        (lr) =>
+          !remoteReservations.some((rr) => rr.reservationNumber === lr.reservationNumber || rr.id === lr.id)
+      );
+      if (unpushedReservations.length > 0) {
+        fetch("/api/reservations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservations: unpushedReservations }),
+        }).catch(() => {});
+      }
+
+      return { syncedOrders: newOrdersCount, syncedReservations: newReservationsCount };
+    } catch (e) {
+      console.warn("Server sync check:", e);
+      return { syncedOrders: 0, syncedReservations: 0 };
+    }
+  },
 };
+
+// Auto-trigger background server sync on initial client load
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    adminStore.syncWithServer().catch(() => {});
+  }, 1000);
+}

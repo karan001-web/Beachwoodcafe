@@ -101,8 +101,8 @@ export function CartDrawer() {
   const [deliveryZip, setDeliveryZip] = useState<string>("90068");
   const [deliveryInstructions, setDeliveryInstructions] = useState<string>("");
 
-  // Payment Options
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("prepay");
+  // Payment Options (Default to "counter" so mobile users aren't blocked by required card numbers)
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("counter");
   const [tipType, setTipType] = useState<TipType>("15");
   const [customTip, setCustomTip] = useState<string>("");
 
@@ -141,7 +141,7 @@ export function CartDrawer() {
     setDeliveryCity("Los Angeles");
     setDeliveryZip("90068");
     setDeliveryInstructions("");
-    setPaymentMethod("prepay");
+    setPaymentMethod("counter");
     setTipType("15");
     setCustomTip("");
     setCardNumber("");
@@ -731,20 +731,31 @@ export function CartDrawer() {
 
                 {/* 1. Contact Information */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between pb-1 border-b border-[#1a3b6b]/15">
+                  <div className="flex items-center justify-between pb-1 border-b border-[#1a3b6b]/15 gap-2 flex-wrap">
                     <h3 className="font-display text-lg font-bold text-[#191918]">
                       Contact Information
                     </h3>
-                    {(name || phone || email || deliveryStreet) && (
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={resetCheckoutForm}
-                        className="text-[0.68rem] text-[#767064] hover:text-[#d32f2f] font-semibold underline cursor-pointer"
-                        title="Erase all filled contact and delivery details"
+                        onClick={handleAutofill}
+                        className="px-2 py-0.5 rounded-md bg-[#16a34a] hover:bg-[#15803d] text-white text-[0.68rem] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                        title="Autofill test details for quick mobile ordering"
                       >
-                        Clear Details
+                        <Sparkles className="size-3" />
+                        <span>⚡ Quick Demo Fill</span>
                       </button>
-                    )}
+                      {(name || phone || email || deliveryStreet) && (
+                        <button
+                          type="button"
+                          onClick={resetCheckoutForm}
+                          className="text-[0.68rem] text-[#767064] hover:text-[#d32f2f] font-semibold underline cursor-pointer"
+                          title="Erase all filled contact and delivery details"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-2.5">
@@ -1331,7 +1342,32 @@ export function CartDrawer() {
                 </div>
 
                 {/* 5. Big Action Button: Place your Order (Exact Match to Screenshot) */}
-                <div>
+                <div className="space-y-3">
+                  {/* Mobile Error Notice Right Above Button */}
+                  {Object.keys(errors).length > 0 && (
+                    <div className="p-3.5 rounded-xl bg-[#fee2e2] border-2 border-[#ef4444] text-[#b91c1c] text-xs space-y-2 animate-in fade-in">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#ef4444]" />
+                        <div className="flex-1">
+                          <p className="font-bold">Please fill the required details:</p>
+                          <ul className="list-disc list-inside mt-1 space-y-0.5 text-[0.72rem]">
+                            {Object.values(errors).map((err, i) => (
+                              <li key={i}>{err}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAutofill}
+                        className="w-full py-2 px-3 rounded-lg bg-[#ef4444] hover:bg-[#dc2626] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                      >
+                        <Sparkles className="size-3.5" />
+                        <span>⚡ Autofill All Details to Place Order Now</span>
+                      </button>
+                    </div>
+                  )}
+
                   <button
                     type="button"
                     disabled={isSubmitting}

@@ -44,9 +44,246 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+// In-memory cache for cross-client real-time synchronization between mobile devices and Admin Panel
+interface StoredOrder {
+  id: string;
+  orderNumber: string;
+  timestamp: number;
+  status?: string;
+  cancelledBy?: string;
+  cancelledAt?: number;
+  cancellationReason?: string;
+  [key: string]: any;
+}
+
+interface StoredReservation {
+  id: string;
+  reservationNumber: string;
+  timestamp: number;
+  status?: string;
+  [key: string]: any;
+}
+
+const serverOrders: StoredOrder[] = [];
+const serverReservations: StoredReservation[] = [];
+
+const corsHeaders: Record<string, string> = {
+  "content-type": "application/json; charset=utf-8",
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "access-control-allow-headers": "Content-Type, Authorization",
+  "cache-control": "no-store, no-cache, must-revalidate",
+};
+
+async function handleApiRequest(request: Request, url: URL): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  const path = url.pathname;
+
+  // 1. Sync endpoint: returns all orders and reservations
+  if (path === "/api/sync" || path === "/api/sync/") {
+    if (request.method === "GET") {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          orders: serverOrders,
+          reservations: serverReservations,
+          timestamp: Date.now(),
+        }),
+        { status: 200, headers: corsHeaders }
+      );
+    }
+  }
+
+  // 2. Orders endpoints
+  if (path === "/api/orders" || path === "/api/orders/") {
+    if (request.method === "GET") {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          orders: serverOrders,
+          total: serverOrders.length,
+        }),
+        { status: 200, headers: corsHeaders }
+      );
+    }
+
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        const incomingOrders: StoredOrder[] = Array.isArray(body?.orders)
+          ? body.orders
+          : body?.order
+          ? [body.order]
+          : [];
+
+        for (const ord of incomingOrders) {
+          if (!ord) continue;
+          const idx = serverOrders.findIndex(
+            (o) => o.id === ord.id || (ord.orderNumber && o.orderNumber === ord.orderNumber)
+          );
+          if (idx !== -1) {
+            serverOrders[idx] = { ...serverOrders[idx], ...ord };
+          } else {
+            serverOrders.unshift(ord);
+          }
+        }
+
+        // Limit in-memory cache to last 200 orders
+        if (serverOrders.length > 200) serverOrders.length = 200;
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            count: serverOrders.length,
+            orders: serverOrders,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: err?.message || "Invalid JSON" }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
+  // Update order status
+  if (path === "/api/orders/update-status") {
+    if (request.method === "POST") {
+      try {
+        const { orderId, status, cancelledBy, cancellationReason } = await request.json();
+        const idx = serverOrders.findIndex(
+          (o) => o.id === orderId || o.orderNumber === orderId
+        );
+        if (idx !== -1 && serverOrders[idx]) {
+          const ord = serverOrders[idx]!;
+          ord["status"] = status;
+          if (status === "cancelled") {
+            ord["cancelledBy"] = cancelledBy || "admin";
+            ord["cancelledAt"] = Date.now();
+            ord["cancellationReason"] = cancellationReason;
+          }
+          return new Response(
+            JSON.stringify({ success: true, order: ord }),
+            { status: 200, headers: corsHeaders }
+          );
+        }
+        return new Response(
+          JSON.stringify({ success: false, message: "Order not found" }),
+          { status: 404, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: err?.message }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
+  // 3. Reservations endpoints
+  if (path === "/api/reservations" || path === "/api/reservations/") {
+    if (request.method === "GET") {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          reservations: serverReservations,
+          total: serverReservations.length,
+        }),
+        { status: 200, headers: corsHeaders }
+      );
+    }
+
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        const incomingReservations: StoredReservation[] = Array.isArray(body?.reservations)
+          ? body.reservations
+          : body?.reservation
+          ? [body.reservation]
+          : [];
+
+        for (const res of incomingReservations) {
+          if (!res) continue;
+          const idx = serverReservations.findIndex(
+            (r) =>
+              r.id === res.id ||
+              (res.reservationNumber && r.reservationNumber === res.reservationNumber)
+          );
+          if (idx !== -1) {
+            serverReservations[idx] = { ...serverReservations[idx], ...res };
+          } else {
+            serverReservations.unshift(res);
+          }
+        }
+
+        // Limit in-memory cache to last 200 reservations
+        if (serverReservations.length > 200) serverReservations.length = 200;
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            count: serverReservations.length,
+            reservations: serverReservations,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: err?.message || "Invalid JSON" }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
+  // Update reservation status
+  if (path === "/api/reservations/update-status") {
+    if (request.method === "POST") {
+      try {
+        const { resId, status } = await request.json();
+        const idx = serverReservations.findIndex(
+          (r) => r.id === resId || r.reservationNumber === resId
+        );
+        if (idx !== -1 && serverReservations[idx]) {
+          const res = serverReservations[idx]!;
+          res["status"] = status;
+          return new Response(
+            JSON.stringify({ success: true, reservation: res }),
+            { status: 200, headers: corsHeaders }
+          );
+        }
+        return new Response(
+          JSON.stringify({ success: false, message: "Reservation not found" }),
+          { status: 404, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: err?.message }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
+  return new Response(JSON.stringify({ error: "API endpoint not found" }), {
+    status: 404,
+    headers: corsHeaders,
+  });
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const url = new URL(request.url);
+      if (url.pathname.startsWith("/api/")) {
+        return await handleApiRequest(request, url);
+      }
+
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
