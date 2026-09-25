@@ -437,7 +437,14 @@ export const adminStore = {
 
   updateOrderStatus(orderId: string, status: OrderStatus): boolean {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const idx = orders.findIndex((o) => o.id === orderId || o.orderNumber === orderId);
+    const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
+    const idx = orders.findIndex(
+      (o) =>
+        o.id === orderId ||
+        o.orderNumber === orderId ||
+        (o.id && o.id.toLowerCase() === cleanId) ||
+        (o.orderNumber && o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanId)
+    );
     if (idx === -1 || !orders[idx]) return false;
 
     orders[idx]!.status = status;
@@ -470,7 +477,8 @@ export const adminStore = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          orderId: orders[idx]!.orderNumber,
+          orderId: orders[idx]!.id,
+          orderNumber: orders[idx]!.orderNumber,
           status,
           cancelledBy: orders[idx]!.cancelledBy,
           cancellationReason: orders[idx]!.cancellationReason,
@@ -741,8 +749,13 @@ export const adminStore = {
 
   updateReservationStatus(resId: string, status: ReservationStatus): boolean {
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    const cleanId = String(resId || "").trim().toLowerCase().replace(/^#/, "");
     const idx = reservations.findIndex(
-      (r) => r.id === resId || r.reservationNumber === resId
+      (r) =>
+        r.id === resId ||
+        r.reservationNumber === resId ||
+        (r.id && r.id.toLowerCase() === cleanId) ||
+        (r.reservationNumber && r.reservationNumber.replace(/^#/, "").trim().toLowerCase() === cleanId)
     );
     if (idx === -1 || !reservations[idx]) return false;
     reservations[idx]!.status = status;
@@ -768,7 +781,11 @@ export const adminStore = {
       fetch("/api/reservations/update-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resId: reservations[idx]!.reservationNumber, status }),
+        body: JSON.stringify({
+          resId: reservations[idx]!.id,
+          reservationNumber: reservations[idx]!.reservationNumber,
+          status,
+        }),
       }).catch((err) => console.warn("Background status sync to server:", err));
     }
 
@@ -1320,17 +1337,25 @@ export const adminStore = {
   // --------------------------------------------------------------------------
   // 8. SERVER SYNCHRONIZATION (CROSS-DEVICE & MOBILE VIEW SYNC)
   // --------------------------------------------------------------------------
-  async syncWithServer(): Promise<{ syncedOrders: number; syncedReservations: number }> {
-    if (typeof window === "undefined") return { syncedOrders: 0, syncedReservations: 0 };
+  async syncWithServer(): Promise<{
+    syncedOrders: number;
+    updatedOrders: number;
+    syncedReservations: number;
+    updatedReservations: number;
+  }> {
+    if (typeof window === "undefined")
+      return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
     try {
       const localOrders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const localReservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
 
       // 1. Fetch remote orders and reservations from server
       const res = await fetch("/api/sync", { cache: "no-store" });
-      if (!res.ok) return { syncedOrders: 0, syncedReservations: 0 };
+      if (!res.ok)
+        return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
       const data = await res.json();
-      if (!data?.success) return { syncedOrders: 0, syncedReservations: 0 };
+      if (!data?.success)
+        return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
 
       const remoteOrders: AdminOrder[] = Array.isArray(data.orders) ? data.orders : [];
       const remoteReservations: AdminReservation[] = Array.isArray(data.reservations)
@@ -1338,23 +1363,44 @@ export const adminStore = {
         : [];
 
       let newOrdersCount = 0;
+      let updatedOrdersCount = 0;
       let newReservationsCount = 0;
+      let updatedReservationsCount = 0;
 
       // Merge remote orders into local state
       const mergedOrders = [...localOrders];
       for (const remote of remoteOrders) {
-        const existingIdx = mergedOrders.findIndex(
-          (o) => o.id === remote.id || (remote.orderNumber && o.orderNumber === remote.orderNumber)
-        );
+        if (!remote) continue;
+        const cleanRemoteNum = remote.orderNumber
+          ? String(remote.orderNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
+        const cleanRemoteId = remote.id ? String(remote.id).trim().toLowerCase() : "";
+
+        const existingIdx = mergedOrders.findIndex((o) => {
+          if (!o) return false;
+          if (remote.id && o.id === remote.id) return true;
+          if (remote.orderNumber && o.orderNumber === remote.orderNumber) return true;
+          const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+          if (cleanRemoteNum && (oNum === cleanRemoteNum || oId === cleanRemoteNum)) return true;
+          if (cleanRemoteId && (oId === cleanRemoteId || oNum === cleanRemoteId)) return true;
+          return false;
+        });
+
         if (existingIdx === -1) {
           mergedOrders.unshift(remote);
           newOrdersCount++;
         } else {
+          const current = mergedOrders[existingIdx];
           if (
-            remote.status !== mergedOrders[existingIdx]?.status ||
-            remote.cancelledBy !== mergedOrders[existingIdx]?.cancelledBy
+            current &&
+            (remote.status !== current.status ||
+              remote.cancelledBy !== current.cancelledBy ||
+              remote.cancellationReason !== current.cancellationReason ||
+              remote.cancelledAt !== current.cancelledAt)
           ) {
-            mergedOrders[existingIdx] = { ...mergedOrders[existingIdx], ...remote };
+            mergedOrders[existingIdx] = { ...current, ...remote };
+            updatedOrdersCount++;
           }
         }
       }
@@ -1362,49 +1408,83 @@ export const adminStore = {
       // Merge remote reservations into local state
       const mergedReservations = [...localReservations];
       for (const remote of remoteReservations) {
-        const existingIdx = mergedReservations.findIndex(
-          (r) =>
-            r.id === remote.id ||
-            (remote.reservationNumber && r.reservationNumber === remote.reservationNumber)
-        );
+        if (!remote) continue;
+        const cleanRemoteResNum = remote.reservationNumber
+          ? String(remote.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
+        const cleanRemoteId = remote.id ? String(remote.id).trim().toLowerCase() : "";
+
+        const existingIdx = mergedReservations.findIndex((r) => {
+          if (!r) return false;
+          if (remote.id && r.id === remote.id) return true;
+          if (remote.reservationNumber && r.reservationNumber === remote.reservationNumber) return true;
+          const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const rId = r.id ? String(r.id).trim().toLowerCase() : "";
+          if (cleanRemoteResNum && (rNum === cleanRemoteResNum || rId === cleanRemoteResNum)) return true;
+          if (cleanRemoteId && (rId === cleanRemoteId || rNum === cleanRemoteId)) return true;
+          return false;
+        });
+
         if (existingIdx === -1) {
           mergedReservations.unshift(remote);
           newReservationsCount++;
         } else {
-          if (remote.status !== mergedReservations[existingIdx]?.status) {
-            mergedReservations[existingIdx] = { ...mergedReservations[existingIdx], ...remote };
+          const current = mergedReservations[existingIdx];
+          if (current && remote.status !== current.status) {
+            mergedReservations[existingIdx] = { ...current, ...remote };
+            updatedReservationsCount++;
           }
         }
       }
 
-      if (newOrdersCount > 0) {
+      if (newOrdersCount > 0 || updatedOrdersCount > 0) {
         safeSetJSON(
           STORAGE_KEYS.ORDERS,
           mergedOrders.sort((a, b) => b.timestamp - a.timestamp)
         );
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
-            detail: { action: "sync_merge", count: newOrdersCount },
+            detail: {
+              action: "sync_merge",
+              newCount: newOrdersCount,
+              updatedCount: updatedOrdersCount,
+            },
           })
         );
       }
 
-      if (newReservationsCount > 0) {
+      if (newReservationsCount > 0 || updatedReservationsCount > 0) {
         safeSetJSON(
           STORAGE_KEYS.RESERVATIONS,
           mergedReservations.sort((a, b) => b.timestamp - a.timestamp)
         );
         window.dispatchEvent(
           new CustomEvent("bwc_reservation_change", {
-            detail: { action: "sync_merge", count: newReservationsCount },
+            detail: {
+              action: "sync_merge",
+              newCount: newReservationsCount,
+              updatedCount: updatedReservationsCount,
+            },
           })
         );
       }
 
-      // 2. Also ensure server has our local orders and reservations
-      const unpushedOrders = localOrders.filter(
-        (lo) => !remoteOrders.some((ro) => ro.orderNumber === lo.orderNumber || ro.id === lo.id)
-      );
+      // 2. Also ensure server has our local orders and reservations (push only truly missing items)
+      const unpushedOrders = localOrders.filter((lo) => {
+        if (!lo) return false;
+        const cleanLo = lo.orderNumber ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+        const cleanId = lo.id ? String(lo.id).trim().toLowerCase() : "";
+        return !remoteOrders.some((ro) => {
+          if (!ro) return false;
+          if (ro.id && lo.id && ro.id === lo.id) return true;
+          const cleanRo = ro.orderNumber ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const cleanRoId = ro.id ? String(ro.id).trim().toLowerCase() : "";
+          if (cleanLo && (cleanRo === cleanLo || cleanRoId === cleanLo)) return true;
+          if (cleanId && (cleanRoId === cleanId || cleanRo === cleanId)) return true;
+          return false;
+        });
+      });
+
       if (unpushedOrders.length > 0) {
         fetch("/api/orders", {
           method: "POST",
@@ -1413,10 +1493,25 @@ export const adminStore = {
         }).catch(() => {});
       }
 
-      const unpushedReservations = localReservations.filter(
-        (lr) =>
-          !remoteReservations.some((rr) => rr.reservationNumber === lr.reservationNumber || rr.id === lr.id)
-      );
+      const unpushedReservations = localReservations.filter((lr) => {
+        if (!lr) return false;
+        const cleanLr = lr.reservationNumber
+          ? String(lr.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
+        const cleanId = lr.id ? String(lr.id).trim().toLowerCase() : "";
+        return !remoteReservations.some((rr) => {
+          if (!rr) return false;
+          if (rr.id && lr.id && rr.id === lr.id) return true;
+          const cleanRr = rr.reservationNumber
+            ? String(rr.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
+          const cleanRrId = rr.id ? String(rr.id).trim().toLowerCase() : "";
+          if (cleanLr && (cleanRr === cleanLr || cleanRrId === cleanLr)) return true;
+          if (cleanId && (cleanRrId === cleanId || cleanRr === cleanId)) return true;
+          return false;
+        });
+      });
+
       if (unpushedReservations.length > 0) {
         fetch("/api/reservations", {
           method: "POST",
@@ -1425,10 +1520,15 @@ export const adminStore = {
         }).catch(() => {});
       }
 
-      return { syncedOrders: newOrdersCount, syncedReservations: newReservationsCount };
+      return {
+        syncedOrders: newOrdersCount,
+        updatedOrders: updatedOrdersCount,
+        syncedReservations: newReservationsCount,
+        updatedReservations: updatedReservationsCount,
+      };
     } catch (e) {
       console.warn("Server sync check:", e);
-      return { syncedOrders: 0, syncedReservations: 0 };
+      return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
     }
   },
 };

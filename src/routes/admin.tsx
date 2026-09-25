@@ -545,9 +545,11 @@ export function AdminPage() {
     try {
       const res = await adminStore.syncWithServer();
       loadData();
-      if (res.syncedOrders > 0 || res.syncedReservations > 0) {
+      const totalChanges =
+        res.syncedOrders + res.updatedOrders + res.syncedReservations + res.updatedReservations;
+      if (totalChanges > 0) {
         showNotification(
-          `🔄 Synced with cloud server: ${res.syncedOrders} new order(s), ${res.syncedReservations} new reservation(s).`
+          `🔄 Synced with cloud server: ${res.syncedOrders + res.updatedOrders} order(s), ${res.syncedReservations + res.updatedReservations} reservation(s).`
         );
       } else {
         showNotification("✅ Admin data is up to date with cloud server.");
@@ -669,7 +671,12 @@ export function AdminPage() {
     adminStore.updateOrderStatus(orderId, status);
     loadData();
     showNotification(`Order status updated to "${status.toUpperCase()}"`);
-    if (selectedOrder && selectedOrder.id === orderId) {
+    if (
+      selectedOrder &&
+      (selectedOrder.id === orderId ||
+        selectedOrder.orderNumber === orderId ||
+        selectedOrder.orderNumber.replace(/^#/, "") === orderId.replace(/^#/, ""))
+    ) {
       setSelectedOrder((prev) => (prev ? { ...prev, status } : null));
     }
   };

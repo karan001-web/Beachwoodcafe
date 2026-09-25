@@ -49,10 +49,10 @@ interface StoredOrder {
   id: string;
   orderNumber: string;
   timestamp: number;
-  status?: string;
-  cancelledBy?: string;
-  cancelledAt?: number;
-  cancellationReason?: string;
+  status?: string | undefined;
+  cancelledBy?: string | undefined;
+  cancelledAt?: number | undefined;
+  cancellationReason?: string | undefined;
   [key: string]: any;
 }
 
@@ -60,7 +60,7 @@ interface StoredReservation {
   id: string;
   reservationNumber: string;
   timestamp: number;
-  status?: string;
+  status?: string | undefined;
   [key: string]: any;
 }
 
@@ -121,11 +121,38 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
         for (const ord of incomingOrders) {
           if (!ord) continue;
-          const idx = serverOrders.findIndex(
-            (o) => o.id === ord.id || (ord.orderNumber && o.orderNumber === ord.orderNumber)
-          );
+          const cleanIncomingNum = ord.orderNumber
+            ? String(ord.orderNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
+          const cleanIncomingId = ord.id ? String(ord.id).trim().toLowerCase() : "";
+
+          const idx = serverOrders.findIndex((o) => {
+            if (!o) return false;
+            if (ord.id && o.id === ord.id) return true;
+            if (ord.orderNumber && o.orderNumber === ord.orderNumber) return true;
+            const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+            const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+            if (cleanIncomingNum && (oNum === cleanIncomingNum || oId === cleanIncomingNum)) return true;
+            if (cleanIncomingId && (oId === cleanIncomingId || oNum === cleanIncomingId)) return true;
+            return false;
+          });
+
           if (idx !== -1) {
-            serverOrders[idx] = { ...serverOrders[idx], ...ord };
+            const existing = serverOrders[idx]!;
+            // Do NOT let an incoming 'pending' status downgrade an already processed order (e.g. kitchen, ready, completed)
+            const shouldPreserveExistingStatus =
+              existing.status &&
+              existing.status !== "pending" &&
+              ord.status === "pending";
+
+            serverOrders[idx] = {
+              ...existing,
+              ...ord,
+              status: shouldPreserveExistingStatus ? existing.status : (ord.status || existing.status),
+              cancelledBy: ord.cancelledBy || existing.cancelledBy,
+              cancelledAt: ord.cancelledAt || existing.cancelledAt,
+              cancellationReason: ord.cancellationReason || existing.cancellationReason,
+            };
           } else {
             serverOrders.unshift(ord);
           }
@@ -155,10 +182,21 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   if (path === "/api/orders/update-status") {
     if (request.method === "POST") {
       try {
-        const { orderId, status, cancelledBy, cancellationReason } = await request.json();
-        const idx = serverOrders.findIndex(
-          (o) => o.id === orderId || o.orderNumber === orderId
-        );
+        const { orderId, orderNumber, status, cancelledBy, cancellationReason } = await request.json();
+        const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
+        const cleanNum = String(orderNumber || "").trim().toLowerCase().replace(/^#/, "");
+
+        const idx = serverOrders.findIndex((o) => {
+          if (!o) return false;
+          if (orderId && o.id === orderId) return true;
+          if (orderNumber && o.orderNumber === orderNumber) return true;
+          const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+          if (cleanId && (oId === cleanId || oNum === cleanId)) return true;
+          if (cleanNum && (oId === cleanNum || oNum === cleanNum)) return true;
+          return false;
+        });
+
         if (idx !== -1 && serverOrders[idx]) {
           const ord = serverOrders[idx]!;
           ord["status"] = status;
@@ -209,13 +247,34 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
         for (const res of incomingReservations) {
           if (!res) continue;
-          const idx = serverReservations.findIndex(
-            (r) =>
-              r.id === res.id ||
-              (res.reservationNumber && r.reservationNumber === res.reservationNumber)
-          );
+          const cleanIncomingNum = res.reservationNumber
+            ? String(res.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
+          const cleanIncomingId = res.id ? String(res.id).trim().toLowerCase() : "";
+
+          const idx = serverReservations.findIndex((r) => {
+            if (!r) return false;
+            if (res.id && r.id === res.id) return true;
+            if (res.reservationNumber && r.reservationNumber === res.reservationNumber) return true;
+            const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+            const rId = r.id ? String(r.id).trim().toLowerCase() : "";
+            if (cleanIncomingNum && (rNum === cleanIncomingNum || rId === cleanIncomingNum)) return true;
+            if (cleanIncomingId && (rId === cleanIncomingId || rNum === cleanIncomingId)) return true;
+            return false;
+          });
+
           if (idx !== -1) {
-            serverReservations[idx] = { ...serverReservations[idx], ...res };
+            const existing = serverReservations[idx]!;
+            const shouldPreserveExistingStatus =
+              existing.status &&
+              existing.status !== "pending" &&
+              res.status === "pending";
+
+            serverReservations[idx] = {
+              ...existing,
+              ...res,
+              status: shouldPreserveExistingStatus ? existing.status : (res.status || existing.status),
+            };
           } else {
             serverReservations.unshift(res);
           }
@@ -245,10 +304,21 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   if (path === "/api/reservations/update-status") {
     if (request.method === "POST") {
       try {
-        const { resId, status } = await request.json();
-        const idx = serverReservations.findIndex(
-          (r) => r.id === resId || r.reservationNumber === resId
-        );
+        const { resId, reservationNumber, status } = await request.json();
+        const cleanId = String(resId || "").trim().toLowerCase().replace(/^#/, "");
+        const cleanNum = String(reservationNumber || "").trim().toLowerCase().replace(/^#/, "");
+
+        const idx = serverReservations.findIndex((r) => {
+          if (!r) return false;
+          if (resId && r.id === resId) return true;
+          if (reservationNumber && r.reservationNumber === reservationNumber) return true;
+          const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const rId = r.id ? String(r.id).trim().toLowerCase() : "";
+          if (cleanId && (rId === cleanId || rNum === cleanId)) return true;
+          if (cleanNum && (rId === cleanNum || rNum === cleanNum)) return true;
+          return false;
+        });
+
         if (idx !== -1 && serverReservations[idx]) {
           const res = serverReservations[idx]!;
           res["status"] = status;

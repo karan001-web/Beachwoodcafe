@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   X,
   Search,
@@ -37,6 +37,9 @@ export function OrderTrackModal({
 }: OrderTrackModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
+  const selectedOrderRef = useRef<AdminOrder | null>(selectedOrder);
+  selectedOrderRef.current = selectedOrder;
+
   const [recentOrders, setRecentOrders] = useState<AdminOrder[]>([]);
   const [searchError, setSearchError] = useState("");
   const [now, setNow] = useState(Date.now());
@@ -59,20 +62,22 @@ export function OrderTrackModal({
     }
     setRecentOrders(recents);
 
-    // 1. If explicit initial order provided, select it
-    if (initialOrderNumber) {
-      const match = adminStore.findOrder(initialOrderNumber);
-      if (match) {
-        setSelectedOrder(match);
+    // 1. Maintain currently selected order with latest refreshed status
+    const current = selectedOrderRef.current;
+    if (current) {
+      const refreshed =
+        adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id);
+      if (refreshed) {
+        setSelectedOrder(refreshed);
         return;
       }
     }
 
-    // 2. Refresh currently selected order if active
-    if (selectedOrder) {
-      const refreshed = adminStore.findOrder(selectedOrder.orderNumber);
-      if (refreshed) {
-        setSelectedOrder(refreshed);
+    // 2. If explicit initial order provided, select it
+    if (initialOrderNumber) {
+      const match = adminStore.findOrder(initialOrderNumber);
+      if (match) {
+        setSelectedOrder(match);
         return;
       }
     }
@@ -109,15 +114,25 @@ export function OrderTrackModal({
     }).catch(() => {});
 
     // Live poller every 1.5s to keep status synchronized across all phones and laptops
-    const pollInterval = setInterval(() => {
-      adminStore.syncWithServer().then(() => {
-        if (selectedOrder) {
-          const refreshed = adminStore.findOrder(selectedOrder.orderNumber);
-          if (refreshed && refreshed.status !== selectedOrder.status) {
+    const pollInterval = setInterval(async () => {
+      try {
+        await adminStore.syncWithServer();
+        const current = selectedOrderRef.current;
+        if (current) {
+          const refreshed =
+            adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id);
+          if (
+            refreshed &&
+            (refreshed.status !== current.status ||
+              refreshed.cancelledBy !== current.cancelledBy ||
+              refreshed.cancelledAt !== current.cancelledAt)
+          ) {
             setSelectedOrder(refreshed);
           }
         }
-      }).catch(() => {});
+      } catch {
+        // silent catch
+      }
     }, 1500);
 
     const handleOrderChange = () => {
@@ -132,7 +147,7 @@ export function OrderTrackModal({
       window.removeEventListener("bwc_order_change", handleOrderChange);
       window.removeEventListener("storage", handleOrderChange);
     };
-  }, [isOpen, initialOrderNumber, selectedOrder?.orderNumber]);
+  }, [isOpen, initialOrderNumber]);
 
   // Close on Escape
   useEffect(() => {
@@ -200,7 +215,8 @@ export function OrderTrackModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          orderId: selectedOrder.orderNumber,
+          orderId: selectedOrder.id,
+          orderNumber: selectedOrder.orderNumber,
           status: newStatus,
         }),
       });
