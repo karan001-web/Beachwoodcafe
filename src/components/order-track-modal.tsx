@@ -17,8 +17,10 @@ import {
   ChevronRight,
   ShieldAlert,
   Printer,
+  Check,
+  Sparkles,
 } from "lucide-react";
-import { adminStore, type AdminOrder } from "../lib/admin-store";
+import { adminStore, type AdminOrder, type OrderStatus } from "../lib/admin-store";
 import { site } from "../lib/site-content";
 import { printOrderReceipt } from "../lib/receipt-printer";
 
@@ -43,15 +45,18 @@ export function OrderTrackModal({
     success: boolean;
     message: string;
   } | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
+  const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
 
-  // Load orders and initial selection on open
-  useEffect(() => {
-    if (!isOpen) return;
-
-    setCancelFeedback(null);
-    setSearchError("");
-
-    const recents = adminStore.getCustomerRecentOrders();
+  // Helper to refresh order list and selection
+  const refreshData = () => {
+    let recents = adminStore.getCustomerRecentOrders();
+    const allOrders = adminStore.getOrders();
+    // If no recent order stored in this browser session (e.g. opened on new phone or laptop),
+    // fallback to recent cafe orders so the user can easily click and track!
+    if (recents.length === 0 && allOrders.length > 0) {
+      recents = allOrders.slice(0, 10);
+    }
     setRecentOrders(recents);
 
     // 1. If explicit initial order provided, select it
@@ -63,7 +68,16 @@ export function OrderTrackModal({
       }
     }
 
-    // 2. Otherwise select last placed order
+    // 2. Refresh currently selected order if active
+    if (selectedOrder) {
+      const refreshed = adminStore.findOrder(selectedOrder.orderNumber);
+      if (refreshed) {
+        setSelectedOrder(refreshed);
+        return;
+      }
+    }
+
+    // 3. Otherwise select last placed order
     const lastId = adminStore.getCustomerLastOrderId();
     if (lastId) {
       const match = adminStore.findOrder(lastId);
@@ -73,47 +87,52 @@ export function OrderTrackModal({
       }
     }
 
-    // 3. Otherwise pick top recent order
+    // 4. Otherwise pick top recent order
     if (recents.length > 0 && recents[0]) {
       setSelectedOrder(recents[0]);
-    } else {
-      setSelectedOrder(null);
     }
-  }, [isOpen, initialOrderNumber]);
+  };
 
-  // Live timer tick every 1 second to update countdown
-  useEffect(() => {
-    if (!isOpen) return;
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isOpen]);
-
-  // Listen for real-time changes across windows/tabs
+  // Load orders and initial selection on open, with cloud server sync
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleOrderChange = (e: any) => {
-      const updatedRecents = adminStore.getCustomerRecentOrders();
-      setRecentOrders(updatedRecents);
+    setCancelFeedback(null);
+    setSearchError("");
+    setStatusFeedback(null);
 
-      if (selectedOrder) {
-        const refreshed = adminStore.findOrder(selectedOrder.orderNumber);
-        if (refreshed) {
-          setSelectedOrder(refreshed);
+    refreshData();
+
+    // Pull latest data from cloud server immediately
+    adminStore.syncWithServer().then(() => {
+      refreshData();
+    }).catch(() => {});
+
+    // Live poller every 1.5s to keep status synchronized across all phones and laptops
+    const pollInterval = setInterval(() => {
+      adminStore.syncWithServer().then(() => {
+        if (selectedOrder) {
+          const refreshed = adminStore.findOrder(selectedOrder.orderNumber);
+          if (refreshed && refreshed.status !== selectedOrder.status) {
+            setSelectedOrder(refreshed);
+          }
         }
-      }
+      }).catch(() => {});
+    }, 1500);
+
+    const handleOrderChange = () => {
+      refreshData();
     };
 
     window.addEventListener("bwc_order_change", handleOrderChange);
     window.addEventListener("storage", handleOrderChange);
 
     return () => {
+      clearInterval(pollInterval);
       window.removeEventListener("bwc_order_change", handleOrderChange);
       window.removeEventListener("storage", handleOrderChange);
     };
-  }, [isOpen, selectedOrder]);
+  }, [isOpen, initialOrderNumber, selectedOrder?.orderNumber]);
 
   // Close on Escape
   useEffect(() => {
@@ -128,8 +147,8 @@ export function OrderTrackModal({
 
   if (!isOpen) return null;
 
-  // Search handler
-  const handleSearch = (e: React.FormEvent) => {
+  // Search handler (with cloud sync fallback)
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setSearchError("");
     setCancelFeedback(null);
@@ -139,7 +158,13 @@ export function OrderTrackModal({
       return;
     }
 
-    const found = adminStore.findOrder(searchQuery.trim());
+    let found = adminStore.findOrder(searchQuery.trim());
+    if (!found) {
+      // Sync with cloud server in case order was placed from another device
+      await adminStore.syncWithServer();
+      found = adminStore.findOrder(searchQuery.trim());
+    }
+
     if (found) {
       setSelectedOrder(found);
       setSearchQuery("");
@@ -148,6 +173,53 @@ export function OrderTrackModal({
         `No order found matching "${searchQuery}". Please check your order ID (e.g. BWC-12345) or phone number.`
       );
     }
+  };
+
+  // Status Change Handler (allows clicking on Order Received, In Kitchen, Ready, Completed)
+  const handleStatusChange = async (newStatus: OrderStatus) => {
+    if (!selectedOrder) return;
+    if (selectedOrder.status === newStatus) return;
+    if (selectedOrder.status === "cancelled") {
+      setCancelFeedback({
+        success: false,
+        message: "This order has been cancelled and its status cannot be changed.",
+      });
+      return;
+    }
+
+    setStatusUpdating(newStatus);
+    const updatedOrder: AdminOrder = { ...selectedOrder, status: newStatus };
+    setSelectedOrder(updatedOrder);
+
+    // 1. Update in local store & broadcast
+    adminStore.updateOrderStatus(selectedOrder.id, newStatus);
+
+    // 2. Push update directly to server API
+    try {
+      await fetch("/api/orders/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: selectedOrder.orderNumber,
+          status: newStatus,
+        }),
+      });
+    } catch (e) {
+      console.warn("Status sync error:", e);
+    }
+
+    const labelMap: Record<string, string> = {
+      pending: "Order Received",
+      kitchen: "In Kitchen",
+      ready: "Ready for Pickup",
+      completed: "Completed",
+    };
+
+    setStatusFeedback(`Live Status Updated: ${labelMap[newStatus] || newStatus}`);
+    setTimeout(() => {
+      setStatusUpdating(null);
+      setTimeout(() => setStatusFeedback(null), 3000);
+    }, 400);
   };
 
   // Cancellation logic
@@ -498,54 +570,88 @@ export function OrderTrackModal({
                 )}
 
                 {/* =================================================================== */}
-                {/* 5. VISUAL PROGRESS STEPPER */}
+                {/* 5. VISUAL PROGRESS STEPPER (Interactive Buttons with Live Sync) */}
                 {/* =================================================================== */}
                 {selectedOrder.status !== "cancelled" && (
                   <div className="pt-2">
-                    <span className="text-[0.68rem] font-extrabold uppercase tracking-wider text-[#767064] block mb-3">
-                      Preparation & Delivery Progress
-                    </span>
+                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                      <span className="text-[0.68rem] font-extrabold uppercase tracking-wider text-[#767064]">
+                        Preparation & Delivery Status
+                      </span>
+                      <span className="text-[0.65rem] font-bold text-[#1a3b6b] bg-[#1a3b6b]/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Sparkles className="size-3 text-[#d99214]" />
+                        <span>Tap stage to update live</span>
+                      </span>
+                    </div>
 
-                    <div className="grid grid-cols-4 gap-1 sm:gap-2 relative">
+                    {statusFeedback && (
+                      <div className="mb-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                        <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+                        <span>{statusFeedback}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 relative">
                       {steps.map((st, idx) => {
                         const isDone = idx <= currentStepIdx;
                         const isCurrent = idx === currentStepIdx;
+                        const isUpdatingThis = statusUpdating === st.key;
 
                         return (
-                          <div
+                          <button
                             key={st.key}
-                            className={`p-2.5 rounded-xl border text-center transition-all ${
+                            type="button"
+                            onClick={() => handleStatusChange(st.key as OrderStatus)}
+                            title={`Click to set status to: ${st.label}`}
+                            className={`p-3 rounded-2xl border text-center transition-all cursor-pointer active:scale-95 flex flex-col items-center justify-center relative select-none ${
                               isCurrent
-                                ? "bg-[#1a3b6b] text-white border-[#1a3b6b] shadow-sm scale-[1.02]"
+                                ? "bg-[#1a3b6b] text-white border-[#1a3b6b] shadow-md ring-2 ring-[#d99214] scale-[1.02]"
                                 : isDone
-                                  ? "bg-emerald-50 text-emerald-900 border-emerald-200"
-                                  : "bg-white text-[#767064] border-gray-200 opacity-60"
+                                  ? "bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100/70"
+                                  : "bg-white text-[#767064] border-[#c9bba6]/60 hover:border-[#1a3b6b] hover:bg-[#ede4d5]/30 hover:text-[#191918]"
                             }`}
                           >
-                            <div className="flex justify-center mb-1">
-                              {isDone ? (
-                                <CheckCircle2
-                                  className={`size-4 ${
-                                    isCurrent ? "text-[#d99214]" : "text-emerald-600"
-                                  }`}
-                                />
-                              ) : (
-                                <div className="size-4 rounded-full border border-gray-300 flex items-center justify-center text-[0.6rem]">
-                                  {idx + 1}
-                                </div>
-                              )}
-                            </div>
+                            {isUpdatingThis ? (
+                              <div className="size-5 mb-1.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <div className="flex justify-center mb-1.5">
+                                {isDone ? (
+                                  <div
+                                    className={`size-6 rounded-full flex items-center justify-center ${
+                                      isCurrent ? "bg-[#d99214] text-[#191918]" : "bg-emerald-600 text-white"
+                                    }`}
+                                  >
+                                    <Check className="size-3.5 stroke-[3]" />
+                                  </div>
+                                ) : (
+                                  <div className="size-6 rounded-full border-2 border-gray-300 flex items-center justify-center text-[0.65rem] font-bold text-gray-500">
+                                    {idx + 1}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             <span
-                              className={`text-[0.68rem] font-bold block ${
-                                isCurrent ? "text-white" : ""
+                              className={`text-xs font-bold block ${
+                                isCurrent ? "text-white" : "text-[#191918]"
                               }`}
                             >
                               {st.label}
                             </span>
-                            <span className="text-[0.6rem] hidden sm:block opacity-80 mt-0.5">
+                            <span
+                              className={`text-[0.62rem] mt-0.5 block ${
+                                isCurrent ? "text-white/80" : "text-[#767064]"
+                              }`}
+                            >
                               {st.desc}
                             </span>
-                          </div>
+
+                            {isCurrent && (
+                              <span className="mt-1 px-1.5 py-0.2 rounded-full text-[0.58rem] font-black uppercase tracking-wider bg-[#d99214] text-[#191918]">
+                                CURRENT
+                              </span>
+                            )}
+                          </button>
                         );
                       })}
                     </div>
