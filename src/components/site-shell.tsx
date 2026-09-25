@@ -6,7 +6,6 @@ import {
   Menu,
   ShoppingBag,
   X,
-  Lock,
   Clock,
   Phone,
   MapPin,
@@ -374,14 +373,6 @@ export function SiteFooter() {
               >
                 Cookies
               </button>
-              <a
-                href="/admin"
-                className="hover:text-[#d99214] text-[#ede4d5]/70 transition-colors cursor-pointer inline-flex items-center gap-1 font-semibold"
-                title="Management and staff portal"
-              >
-                <Lock className="size-3 text-[#d99214]" />
-                <span>Staff Portal</span>
-              </a>
             </div>
 
             <button
