@@ -129,7 +129,6 @@ html {
   scroll-behavior: smooth;
   width: 100%;
   max-width: 100%;
-  overflow-x: clip;
 }
 body {
   width: 100%;
@@ -138,16 +137,12 @@ body {
   min-height: 100dvh;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  overflow-x: clip;
+  overflow-x: hidden;
   -webkit-tap-highlight-color: transparent;
 }
 #main {
-  flex: 1 0 auto;
   width: 100%;
   max-width: 100%;
-  overflow-x: clip;
 }
 footer {
   width: 100%;
@@ -599,13 +594,128 @@ button:focus-visible {
   html {
     scroll-behavior: auto;
   }
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+}
+
+/* ========================================================================= */
+/* DEDICATED HIGH-PERFORMANCE MOBILE ANIMATIONS */
+/* ========================================================================= */
+
+@keyframes mapRadarWave {
+  0% {
+    transform: translate(-50%, -50%) scale(0.3);
+    opacity: 0.95;
+    box-shadow: 0 0 10px rgba(229, 169, 36, 0.7);
   }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2.5);
+    opacity: 0;
+    box-shadow: 0 0 25px rgba(229, 169, 36, 0);
+  }
+}
+
+@keyframes mapPinBob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes mapBeaconPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.75;
+    box-shadow: 0 0 0 0 rgba(229, 169, 36, 0.6);
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    box-shadow: 0 0 16px 4px rgba(229, 169, 36, 0.45);
+  }
+}
+
+@keyframes smoothSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes floatGentle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.06);
+  }
+}
+
+.anim-radar-wave-1 {
+  animation: mapRadarWave 3s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.anim-radar-wave-2 {
+  animation: mapRadarWave 3s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  animation-delay: 1.5s;
+  will-change: transform, opacity;
+}
+
+.anim-pin-bob {
+  animation: mapPinBob 1.6s ease-in-out infinite;
+  will-change: transform;
+}
+
+.anim-beacon {
+  animation: mapBeaconPulse 2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.anim-spin-slow {
+  animation: smoothSpin 14s linear infinite;
+  will-change: transform;
+}
+
+.anim-spin-medium {
+  animation: smoothSpin 8s linear infinite;
+  will-change: transform;
+}
+
+.anim-float {
+  animation: floatGentle 3s ease-in-out infinite;
+  will-change: transform;
+}
+
+.anim-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* Touch feedback for mobile cards and buttons */
+.touch-feedback {
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-feedback:active {
+  transform: scale(0.975);
+  filter: brightness(0.97);
 }
 
 /* Modern Menu Page Styles */

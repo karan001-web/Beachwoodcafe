@@ -188,7 +188,7 @@ function GalleryPage() {
             <div
               key={item.id}
               onClick={() => setLightboxIndex(index)}
-              className="group cursor-pointer rounded-3xl overflow-hidden bg-[#f7f3eb] border border-[#ded3c1] shadow-lg shadow-stone-900/5 hover:-translate-y-1.5 hover:shadow-2xl transition-all duration-500 flex flex-col justify-between"
+              className="group cursor-pointer rounded-3xl overflow-hidden bg-[#f7f3eb] border border-[#ded3c1] shadow-lg shadow-stone-900/5 hover:-translate-y-1.5 hover:shadow-2xl active:scale-[0.98] transition-all duration-300 flex flex-col justify-between touch-feedback"
             >
               {/* Image Frame: Compact, Uniform, Beautifully Proportioned */}
               <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#e8decf]">
@@ -208,8 +208,8 @@ function GalleryPage() {
                   <span>{item.tag}</span>
                 </div>
 
-                {/* Hover Expand Icon */}
-                <div className="absolute bottom-3.5 right-3.5 size-9 rounded-full bg-white/95 backdrop-blur-md text-[#1a3b6b] flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300">
+                {/* Hover Expand Icon - visible on mobile, hover-revealed on desktop */}
+                <div className="absolute bottom-3.5 right-3.5 size-9 rounded-full bg-white/95 backdrop-blur-md text-[#1a3b6b] flex items-center justify-center shadow-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 group-hover:scale-105 transition-all duration-300">
                   <Maximize2 className="size-4" />
                 </div>
               </div>

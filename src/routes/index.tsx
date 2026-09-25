@@ -494,12 +494,21 @@ function Index() {
     safePageIndex * reviewsPerPage + reviewsPerPage
   );
 
-  const prevReviewPage = () => {
-    setReviewPageIndex((prev) => (prev <= 0 ? totalReviewPages - 1 : prev - 1));
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
   };
 
-  const nextReviewPage = () => {
-    setReviewPageIndex((prev) => (prev >= totalReviewPages - 1 ? 0 : prev + 1));
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null) return;
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (diff > 45) {
+      nextReviewPage();
+    } else if (diff < -45) {
+      prevReviewPage();
+    }
+    setTouchStartX(null);
   };
 
   // Autoplay review rotation every 7 seconds, pauses on hover
@@ -608,7 +617,7 @@ function Index() {
         <div className="site-container relative z-10">
           <div className="max-w-4xl mx-auto text-center flex flex-col items-center">
             {/* Botanical sketch icon */}
-            <div className="text-[#d99214] mb-5">
+            <div className="text-[#d99214] mb-5 anim-float">
               <svg
                 width="42"
                 height="28"
@@ -742,7 +751,7 @@ function Index() {
               <div
                 key={dish.name}
                 onClick={() => setSelectedDish(dish)}
-                className="group relative bg-[#ede4d5] rounded-2xl overflow-hidden border border-[#c9bba6]/80 shadow-sm hover:shadow-2xl hover:shadow-[#1a3b6b]/15 hover:-translate-y-2.5 transition-all duration-500 cursor-pointer flex flex-col will-change-transform"
+                className="group relative bg-[#ede4d5] rounded-2xl overflow-hidden border border-[#c9bba6]/80 shadow-sm hover:shadow-2xl hover:shadow-[#1a3b6b]/15 hover:-translate-y-2.5 active:scale-[0.98] transition-all duration-300 cursor-pointer flex flex-col will-change-transform touch-feedback"
               >
                 {/* Photo Showcase Container */}
                 <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#d2c4b0]">
@@ -769,14 +778,14 @@ function Index() {
                     </span>
                   </div>
 
-                  {/* Interactive Quick View Floating Bar (Reveals on Hover) */}
-                  <div className="absolute inset-x-0 bottom-0 p-3.5 flex items-center justify-between bg-black/60 backdrop-blur-md text-white translate-y-full opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300 ease-out">
-                    <span className="text-xs font-semibold tracking-wider text-[#f8e5c2] flex items-center gap-1.5">
+                  {/* Interactive Quick View Floating Bar - Touch friendly on mobile, hover-revealed on desktop */}
+                  <div className="absolute inset-x-0 bottom-0 p-3 sm:p-3.5 flex items-center justify-between bg-black/75 sm:bg-black/60 backdrop-blur-md text-white opacity-100 translate-y-0 sm:opacity-0 sm:translate-y-full sm:group-hover:translate-y-0 sm:group-hover:opacity-100 transition-all duration-300 ease-out">
+                    <span className="text-[0.72rem] sm:text-xs font-semibold tracking-wider text-[#f8e5c2] flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[#d99214] animate-pulse" />
-                      View Recipe & Ingredients
+                      Tap for Recipe & Details
                     </span>
-                    <span className="text-xs font-bold text-white flex items-center gap-1">
-                      Details <ArrowRight className="size-3 text-[#d99214]" />
+                    <span className="text-[0.72rem] sm:text-xs font-bold text-white flex items-center gap-1">
+                      Details <ArrowRight className="size-3 text-[#d99214] transition-transform group-hover:translate-x-0.5" />
                     </span>
                   </div>
                 </div>
@@ -972,12 +981,17 @@ function Index() {
             })}
           </div>
 
-          {/* Cards Grid with Staggered Hover Animations */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch">
+          {/* Cards Grid with Staggered Hover Animations and Touch Swipe */}
+          <div
+            key={safePageIndex}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch animate-in fade-in slide-in-from-right-4 duration-300 touch-pan-y"
+          >
             {visibleReviews.map((review) => (
               <div
                 key={review.id}
-                className="group relative rounded-2xl bg-white border border-[#dfd2be] p-6 sm:p-8 flex flex-col justify-between shadow-sm hover:shadow-2xl hover:border-[#d99214] hover:-translate-y-2 transition-all duration-300 min-h-[380px]"
+                className="group relative rounded-2xl bg-white border border-[#dfd2be] p-6 sm:p-8 flex flex-col justify-between shadow-sm hover:shadow-2xl hover:border-[#d99214] hover:-translate-y-2 active:scale-[0.99] transition-all duration-300 min-h-[380px] touch-feedback"
               >
                 {/* Subtle Amber Glow Accent on Hover */}
                 <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-[#d99214]/6 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
@@ -1634,7 +1648,7 @@ function Index() {
                 {/* HUD Header with Compass & Coordinates */}
                 <div className="px-3.5 py-2 bg-black/40 border-b border-white/10 flex items-center justify-between text-[0.62rem] font-mono tracking-wider text-[#ede4d5]/70 shrink-0">
                   <div className="flex items-center gap-1.5 text-[#e5a924]">
-                    <Compass className="size-3 animate-spin" style={{ animationDuration: "12s" }} />
+                    <Compass className="size-3 anim-spin-slow" />
                     <span className="font-bold">34.1199° N, 118.3213° W</span>
                   </div>
                   <span className="px-1.5 py-0.5 rounded bg-white/10 text-white font-sans text-[0.58rem] font-bold tracking-widest uppercase">
@@ -1643,9 +1657,9 @@ function Index() {
                 </div>
 
                 {/* Stylized Architectural Canyon Map SVG Graphic */}
-                <div className="relative flex-1 w-full min-h-[180px] overflow-hidden bg-[#101724] flex items-center justify-center select-none">
+                <div className="relative flex-1 w-full min-h-[200px] overflow-hidden bg-[#101724] flex items-center justify-center select-none">
                   {/* Map Grid and Topographic Roads Graphic */}
-                  <svg className="absolute inset-0 w-full h-full opacity-60" viewBox="0 0 400 225" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="absolute inset-0 w-full h-full opacity-65" viewBox="0 0 400 225" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
                     {/* Topographic Elevation Contours */}
                     <path d="M-20 50 C 60 90, 140 30, 240 70 C 340 120, 420 60, 450 100" stroke="#1f2c42" strokeWidth="1.5" strokeDasharray="3 3" />
                     <path d="M-30 110 C 70 140, 160 80, 260 130 C 360 180, 430 120, 460 160" stroke="#1f2c42" strokeWidth="1.5" strokeDasharray="3 3" />
@@ -1666,23 +1680,20 @@ function Index() {
                   </svg>
 
                   {/* Concentric Animated Radar Ping Waves from Cafe Location */}
-                  <div className="absolute top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                    <div className="size-20 rounded-full border border-[#e5a924]/30 animate-ping" style={{ animationDuration: "3.5s" }} />
-                  </div>
-                  <div className="absolute top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                    <div className="size-11 rounded-full bg-[#e5a924]/10 border border-[#e5a924]/50 animate-pulse" />
-                  </div>
+                  <div className="absolute top-[50%] left-[50%] size-28 rounded-full border-2 border-[#e5a924]/60 anim-radar-wave-1 pointer-events-none" />
+                  <div className="absolute top-[50%] left-[50%] size-28 rounded-full border-2 border-[#e5a924]/60 anim-radar-wave-2 pointer-events-none" />
+                  <div className="absolute top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 size-12 rounded-full bg-[#e5a924]/15 border border-[#e5a924]/60 anim-beacon pointer-events-none" />
 
                   {/* Interactive Pin Marker with Golden Crest */}
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className="size-7 rounded-full bg-gradient-to-tr from-[#1a3b6b] to-[#e5a924] p-0.5 shadow-xl shadow-[#e5a924]/40 flex items-center justify-center animate-bounce duration-1000">
+                  <div className="relative z-10 flex flex-col items-center anim-pin-bob">
+                    <div className="size-8 rounded-full bg-gradient-to-tr from-[#1a3b6b] to-[#e5a924] p-0.5 shadow-xl shadow-[#e5a924]/50 flex items-center justify-center">
                       <div className="size-full rounded-full bg-[#0e141f] flex items-center justify-center">
-                        <MapPin className="size-3.5 text-[#e5a924] fill-[#e5a924]" />
+                        <MapPin className="size-4 text-[#e5a924] fill-[#e5a924]" />
                       </div>
                     </div>
-                    <div className="mt-1.5 px-2.5 py-0.5 rounded-full bg-black/85 backdrop-blur-md border border-[#e5a924]/40 shadow-lg flex items-center gap-1.5">
-                      <span className="size-1 rounded-full bg-[#e5a924] animate-ping" />
-                      <span className="text-[0.62rem] font-bold tracking-wider text-white">
+                    <div className="mt-1.5 px-3 py-0.5 rounded-full bg-black/90 backdrop-blur-md border border-[#e5a924]/50 shadow-lg flex items-center gap-1.5">
+                      <span className="size-1.5 rounded-full bg-[#e5a924] animate-ping" />
+                      <span className="text-[0.66rem] font-bold tracking-wider text-white">
                         BEACHWOOD CAFE
                       </span>
                     </div>
@@ -1732,10 +1743,10 @@ function Index() {
           <div className="pt-2 max-w-2xl mx-auto w-full">
             <div className="rounded-xl bg-gradient-to-br from-[#161f2e]/90 to-[#0e1420]/95 border border-[#e5a924]/30 backdrop-blur-xl p-5 sm:p-6 shadow-xl shadow-[#e5a924]/5 text-center space-y-3 relative overflow-hidden">
               {/* Subtle Amber Glow Center */}
-              <div className="absolute -top-10 left-1/2 -translate-x-1/2 size-40 rounded-full bg-[#e5a924]/10 blur-2xl pointer-events-none" />
+              <div className="absolute -top-10 left-1/2 -translate-x-1/2 size-40 rounded-full bg-[#e5a924]/15 blur-2xl pointer-events-none anim-pulse-glow" />
 
               <div className="inline-flex items-center justify-center gap-1.5 text-xs font-bold uppercase tracking-[0.2em] text-[#e5a924]">
-                <Sparkles className="size-3.5 text-[#e5a924] animate-spin" style={{ animationDuration: "8s" }} />
+                <Sparkles className="size-3.5 text-[#e5a924] anim-spin-medium" />
                 <span>THE CANYON DISPATCH</span>
               </div>
 
