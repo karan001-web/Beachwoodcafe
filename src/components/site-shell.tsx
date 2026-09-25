@@ -92,7 +92,7 @@ export function SiteHeader() {
     <>
       <header className={`site-header ${isScrolled ? "is-scrolled" : ""}`}>
         <div
-          className={`site-container flex items-center justify-between gap-6 transition-[padding] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          className={`site-container flex items-center justify-between gap-2 sm:gap-6 transition-[padding] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
             isScrolled ? "py-2.5 lg:py-3 min-h-[58px]" : "py-4 lg:py-5 min-h-[82px]"
           }`}
         >
@@ -167,11 +167,11 @@ export function SiteHeader() {
           </div>
 
           {/* Mobile Action Buttons with Cart & Track */}
-          <div className="flex items-center gap-1.5 sm:gap-2 lg:hidden">
-            {/* Mobile Track Order Icon */}
+          <div className="flex items-center gap-1 sm:gap-2 lg:hidden shrink-0">
+            {/* Mobile Track Order Icon - on screens >= 360px */}
             <button
               onClick={() => setTrackOpen(true)}
-              className="size-8 sm:size-9 rounded-full border border-[#1a3b6b]/20 bg-white/90 text-[#1a3b6b] hover:bg-[#1a3b6b] hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              className="hidden min-[360px]:flex size-8 sm:size-9 rounded-full border border-[#1a3b6b]/20 bg-white/90 text-[#1a3b6b] hover:bg-[#1a3b6b] hover:text-white items-center justify-center transition-colors cursor-pointer shrink-0"
               aria-label="Track Your Order"
               title="Track Order"
             >
@@ -325,7 +325,7 @@ export function SiteFooter() {
 
   return (
     <>
-      <footer className="bg-[#191918] text-[#ede4d5] border-t border-[#312e29] py-8 sm:py-10">
+      <footer className="w-full bg-[#191918] text-[#ede4d5] border-t border-[#312e29] py-8 sm:py-10 overflow-hidden">
         <div className="site-container">
           {/* Bottom Bar: Copyright, Policy Shortcuts & Back to Top */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-medium text-[#ede4d5]/60">

@@ -925,7 +925,7 @@ function Index() {
           </div>
 
           {/* Category Filter Tabs with smooth mobile horizontal scroll */}
-          <div className="flex items-center sm:justify-center gap-2 sm:gap-3 mb-8 overflow-x-auto no-scrollbar pb-2 sm:pb-0 touch-pan-x -mx-4 px-4 sm:mx-0 sm:px-0">
+          <div className="flex items-center sm:justify-center gap-2 sm:gap-3 mb-8 overflow-x-auto no-scrollbar pb-2 sm:pb-0 touch-pan-x -mx-2 px-2 sm:mx-0 sm:px-0 w-full max-w-full">
             {[
               { key: "all", label: "All Stories", count: customerReviews.length },
               {
@@ -1167,7 +1167,7 @@ function Index() {
             </div>
 
             {/* Category Filter Pills with smooth mobile touch swipe */}
-            <div className="flex items-center sm:justify-center gap-2 pt-1 overflow-x-auto no-scrollbar pb-1 sm:pb-0 touch-pan-x -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div className="flex items-center sm:justify-center gap-2 pt-1 overflow-x-auto no-scrollbar pb-1 sm:pb-0 touch-pan-x -mx-2 px-2 sm:mx-0 sm:px-0 w-full max-w-full">
               {[
                 { id: "all", label: "All Questions", count: faqItems.length },
                 {

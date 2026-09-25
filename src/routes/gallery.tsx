@@ -160,7 +160,7 @@ function GalleryPage() {
         </p>
 
         {/* Category Filter Pills with smooth horizontal swipe */}
-        <div className="mt-8 flex items-center sm:justify-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar pb-1 sm:pb-0 touch-pan-x -mx-3 px-3 sm:mx-0 sm:px-0">
+        <div className="mt-8 flex items-center sm:justify-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar pb-1 sm:pb-0 touch-pan-x -mx-2 px-2 sm:mx-0 sm:px-0 w-full max-w-full">
           {categories.map((cat) => {
             const isActive = activeCategory === cat.id;
             return (

@@ -157,7 +157,7 @@ export function MenuPage() {
       <nav className="menu-nav-sticky py-3" aria-label="Menu categories">
         <div className="site-container flex flex-col gap-3">
           {/* Top row: Categories */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar touch-pan-x -mx-3 px-3 sm:mx-0 sm:px-0">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar touch-pan-x -mx-2 px-2 sm:mx-0 sm:px-0 w-full max-w-full">
             <button
               onClick={() => setActiveCategory("all")}
               className={`menu-tab-btn shrink-0 ${activeCategory === "all" ? "is-active" : ""}`}
@@ -197,7 +197,7 @@ export function MenuPage() {
           {/* Bottom row: Search & Dietary Chips */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1 border-t border-[#1a3b6b]/10">
             {/* Dietary filter pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar touch-pan-x -mx-3 px-3 sm:mx-0 sm:px-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar touch-pan-x -mx-2 px-2 sm:mx-0 sm:px-0 w-full max-w-full">
               <span className="text-[0.68rem] font-extrabold uppercase tracking-wider text-[#595347] mr-1 hidden md:inline shrink-0">
                 Filter:
               </span>
