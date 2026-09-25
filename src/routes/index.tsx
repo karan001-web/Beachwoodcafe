@@ -494,14 +494,24 @@ function Index() {
     safePageIndex * reviewsPerPage + reviewsPerPage
   );
 
+  const prevReviewPage = () => {
+    setReviewPageIndex((prev) => (prev <= 0 ? totalReviewPages - 1 : prev - 1));
+  };
+
+  const nextReviewPage = () => {
+    setReviewPageIndex((prev) => (prev >= totalReviewPages - 1 ? 0 : prev + 1));
+  };
+
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStartX(e.touches[0].clientX);
+    if (e.touches && e.touches[0]) {
+      setTouchStartX(e.touches[0].clientX);
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX === null) return;
+    if (touchStartX === null || !e.changedTouches || !e.changedTouches[0]) return;
     const diff = touchStartX - e.changedTouches[0].clientX;
     if (diff > 45) {
       nextReviewPage();
