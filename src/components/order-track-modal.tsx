@@ -27,7 +27,7 @@ import { printOrderReceipt } from "../lib/receipt-printer";
 interface OrderTrackModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialOrderNumber?: string;
+  initialOrderNumber?: string | undefined;
 }
 
 export function OrderTrackModal({
@@ -36,6 +36,9 @@ export function OrderTrackModal({
   initialOrderNumber,
 }: OrderTrackModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [targetOrderNumber, setTargetOrderNumber] = useState<string | null>(
+    initialOrderNumber || null
+  );
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const selectedOrderRef = useRef<AdminOrder | null>(selectedOrder);
   selectedOrderRef.current = selectedOrder;
@@ -51,32 +54,43 @@ export function OrderTrackModal({
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
 
+  // Sync initialOrderNumber prop changes
+  useEffect(() => {
+    if (initialOrderNumber) {
+      setTargetOrderNumber(initialOrderNumber);
+      const match = adminStore.findOrder(initialOrderNumber);
+      if (match) setSelectedOrder(match);
+    }
+  }, [initialOrderNumber]);
+
   // Helper to refresh order list and selection
-  const refreshData = () => {
-    let recents = adminStore.getCustomerRecentOrders();
+  const refreshData = (forceOrderNumber?: string) => {
     const allOrders = adminStore.getOrders();
-    // If no recent order stored in this browser session (e.g. opened on new phone or laptop),
-    // fallback to recent cafe orders so the user can easily click and track!
+    let recents = adminStore.getCustomerRecentOrders();
     if (recents.length === 0 && allOrders.length > 0) {
       recents = allOrders.slice(0, 10);
     }
     setRecentOrders(recents);
 
-    // 1. Maintain currently selected order with latest refreshed status
-    const current = selectedOrderRef.current;
-    if (current) {
-      const refreshed =
-        adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id);
-      if (refreshed) {
-        setSelectedOrder(refreshed);
+    // 1. If actively tracking an order, keep tracking THAT exact order
+    const activeTarget =
+      targetOrderNumber ||
+      initialOrderNumber ||
+      selectedOrderRef.current?.orderNumber;
+
+    if (activeTarget) {
+      const match = adminStore.findOrder(activeTarget);
+      if (match) {
+        setSelectedOrder(match);
         return;
       }
     }
 
-    // 2. If explicit initial order provided, select it
-    if (initialOrderNumber) {
-      const match = adminStore.findOrder(initialOrderNumber);
+    // 2. If a specific order was explicitly requested
+    if (forceOrderNumber) {
+      const match = adminStore.findOrder(forceOrderNumber);
       if (match) {
+        setTargetOrderNumber(match.orderNumber);
         setSelectedOrder(match);
         return;
       }
@@ -87,6 +101,7 @@ export function OrderTrackModal({
     if (lastId) {
       const match = adminStore.findOrder(lastId);
       if (match) {
+        setTargetOrderNumber(match.orderNumber);
         setSelectedOrder(match);
         return;
       }
@@ -94,6 +109,7 @@ export function OrderTrackModal({
 
     // 4. Otherwise pick top recent order
     if (recents.length > 0 && recents[0]) {
+      setTargetOrderNumber(recents[0].orderNumber);
       setSelectedOrder(recents[0]);
     }
   };
@@ -113,7 +129,7 @@ export function OrderTrackModal({
       refreshData();
     }).catch(() => {});
 
-    // Live poller every 1.5s to keep status synchronized across all phones and laptops
+    // Live poller every 1s as reliable backup to instant SSE cloud events
     const pollInterval = setInterval(async () => {
       try {
         await adminStore.syncWithServer();
@@ -133,10 +149,20 @@ export function OrderTrackModal({
       } catch {
         // silent catch
       }
-    }, 1500);
+    }, 1000);
 
-    const handleOrderChange = () => {
-      refreshData();
+    const handleOrderChange = (e?: any) => {
+      const changedOrderNum = e?.detail?.orderNumber;
+      const current = selectedOrderRef.current;
+      // If we have an active order, only refresh if the changed order is ours or global sync
+      if (
+        !current ||
+        !changedOrderNum ||
+        current.orderNumber.replace(/^#/, "").toLowerCase() ===
+          String(changedOrderNum).replace(/^#/, "").toLowerCase()
+      ) {
+        refreshData();
+      }
     };
 
     window.addEventListener("bwc_order_change", handleOrderChange);
@@ -168,16 +194,18 @@ export function OrderTrackModal({
     setSearchError("");
     setCancelFeedback(null);
 
-    if (!searchQuery.trim()) {
+    const query = searchQuery.trim();
+    if (!query) {
       setSearchError("Please enter an Order Number or Phone Number.");
       return;
     }
 
-    let found = adminStore.findOrder(searchQuery.trim());
+    setTargetOrderNumber(query);
+    let found = adminStore.findOrder(query);
     if (!found) {
       // Sync with cloud server in case order was placed from another device
       await adminStore.syncWithServer();
-      found = adminStore.findOrder(searchQuery.trim());
+      found = adminStore.findOrder(query);
     }
 
     if (found) {
@@ -185,7 +213,7 @@ export function OrderTrackModal({
       setSearchQuery("");
     } else {
       setSearchError(
-        `No order found matching "${searchQuery}". Please check your order ID (e.g. BWC-12345) or phone number.`
+        `No order found matching "${query}". Please check your order ID (e.g. BWC-12345) or phone number.`
       );
     }
   };
@@ -302,6 +330,7 @@ export function OrderTrackModal({
   };
 
   const currentStepIdx = selectedOrder ? getStepIndex(selectedOrder.status) : 0;
+  const isAdminUser = typeof window !== "undefined" && adminStore.isAuthenticated();
 
   return (
     <div
@@ -387,6 +416,7 @@ export function OrderTrackModal({
                       key={ord.id}
                       type="button"
                       onClick={() => {
+                        setTargetOrderNumber(ord.orderNumber);
                         setSelectedOrder(ord);
                         setCancelFeedback(null);
                         setSearchError("");
@@ -586,7 +616,7 @@ export function OrderTrackModal({
                 )}
 
                 {/* =================================================================== */}
-                {/* 5. VISUAL PROGRESS STEPPER (Interactive Buttons with Live Sync) */}
+                {/* 5. VISUAL PROGRESS STEPPER */}
                 {/* =================================================================== */}
                 {selectedOrder.status !== "cancelled" && (
                   <div className="pt-2">
@@ -594,10 +624,20 @@ export function OrderTrackModal({
                       <span className="text-[0.68rem] font-extrabold uppercase tracking-wider text-[#767064]">
                         Preparation & Delivery Status
                       </span>
-                      <span className="text-[0.65rem] font-bold text-[#1a3b6b] bg-[#1a3b6b]/10 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Sparkles className="size-3 text-[#d99214]" />
-                        <span>Tap stage to update live</span>
-                      </span>
+                      {isAdminUser ? (
+                        <span className="text-[0.65rem] font-bold text-[#1a3b6b] bg-[#1a3b6b]/10 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                          <Sparkles className="size-3 text-[#d99214]" />
+                          <span>Tap stage to update live (Admin)</span>
+                        </span>
+                      ) : (
+                        <span className="text-[0.65rem] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-xs">
+                          <span className="relative flex size-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full size-2 bg-emerald-500"></span>
+                          </span>
+                          <span>Live Real-Time Kitchen Sync</span>
+                        </span>
+                      )}
                     </div>
 
                     {statusFeedback && (
@@ -613,20 +653,8 @@ export function OrderTrackModal({
                         const isCurrent = idx === currentStepIdx;
                         const isUpdatingThis = statusUpdating === st.key;
 
-                        return (
-                          <button
-                            key={st.key}
-                            type="button"
-                            onClick={() => handleStatusChange(st.key as OrderStatus)}
-                            title={`Click to set status to: ${st.label}`}
-                            className={`p-3 rounded-2xl border text-center transition-all cursor-pointer active:scale-95 flex flex-col items-center justify-center relative select-none ${
-                              isCurrent
-                                ? "bg-[#1a3b6b] text-white border-[#1a3b6b] shadow-md ring-2 ring-[#d99214] scale-[1.02]"
-                                : isDone
-                                  ? "bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100/70"
-                                  : "bg-white text-[#767064] border-[#c9bba6]/60 hover:border-[#1a3b6b] hover:bg-[#ede4d5]/30 hover:text-[#191918]"
-                            }`}
-                          >
+                        const stepContent = (
+                          <>
                             {isUpdatingThis ? (
                               <div className="size-5 mb-1.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
                             ) : (
@@ -667,7 +695,39 @@ export function OrderTrackModal({
                                 CURRENT
                               </span>
                             )}
+                          </>
+                        );
+
+                        return isAdminUser ? (
+                          <button
+                            key={st.key}
+                            type="button"
+                            onClick={() => handleStatusChange(st.key as OrderStatus)}
+                            title={`Click to set status to: ${st.label}`}
+                            className={`p-3 rounded-2xl border text-center transition-all cursor-pointer active:scale-95 flex flex-col items-center justify-center relative select-none ${
+                              isCurrent
+                                ? "bg-[#1a3b6b] text-white border-[#1a3b6b] shadow-md ring-2 ring-[#d99214] scale-[1.02]"
+                                : isDone
+                                  ? "bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100/70"
+                                  : "bg-white text-[#767064] border-[#c9bba6]/60 hover:border-[#1a3b6b] hover:bg-[#ede4d5]/30 hover:text-[#191918]"
+                            }`}
+                          >
+                            {stepContent}
                           </button>
+                        ) : (
+                          <div
+                            key={st.key}
+                            title={`Status: ${st.label}`}
+                            className={`p-3 rounded-2xl border text-center transition-all cursor-default flex flex-col items-center justify-center relative select-none ${
+                              isCurrent
+                                ? "bg-[#1a3b6b] text-white border-[#1a3b6b] shadow-md ring-2 ring-[#d99214] scale-[1.02]"
+                                : isDone
+                                  ? "bg-emerald-50 text-emerald-900 border-emerald-300"
+                                  : "bg-white text-[#767064] border-[#c9bba6]/60"
+                            }`}
+                          >
+                            {stepContent}
+                          </div>
                         );
                       })}
                     </div>

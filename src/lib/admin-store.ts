@@ -228,9 +228,10 @@ function safeSetJSON(key: string, data: unknown) {
 }
 
 // ============================================================================
-// CROSS-TAB BROADCAST CHANNEL (Instant sync across tabs & mobile views)
+// CROSS-TAB & CROSS-DEVICE CLOUD REAL-TIME PUB/SUB RELAY
 // ============================================================================
 const SYNC_CHANNEL_NAME = "bwc_admin_sync_v1";
+const CLOUD_SYNC_TOPIC = "bwc_beachwood_live_orders_v1";
 let syncChannel: BroadcastChannel | null = null;
 
 if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
@@ -261,6 +262,18 @@ if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
   }
 }
 
+// Global instant cloud publish (under 100ms cross-device delivery via SSE)
+function publishCloudEvent(type: string, payload: any) {
+  if (typeof window === "undefined") return;
+  try {
+    fetch(`https://ntfy.sh/${CLOUD_SYNC_TOPIC}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, payload, senderId: Date.now() }),
+    }).catch(() => {});
+  } catch {}
+}
+
 function broadcastEvent(type: string, payload: any) {
   if (syncChannel) {
     try {
@@ -269,6 +282,8 @@ function broadcastEvent(type: string, payload: any) {
       console.warn("BroadcastChannel postMessage error:", e);
     }
   }
+  // Deliver instantly to other devices across the web
+  publishCloudEvent(type, payload);
 }
 
 // ============================================================================
@@ -459,6 +474,7 @@ export const adminStore = {
     if (typeof window !== "undefined") {
       const payload = {
         orderNumber: orders[idx]!.orderNumber,
+        orderId: orders[idx]!.id,
         action: "status_update",
         status,
         order: orders[idx],
@@ -1531,7 +1547,145 @@ export const adminStore = {
       return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
     }
   },
+
+  // --------------------------------------------------------------------------
+  // 9. INSTANT INCOMING CLOUD EVENT HANDLER (SUB-100MS PUSH)
+  // --------------------------------------------------------------------------
+  handleIncomingCloudEvent(type: string, payload: any) {
+    if (!type || !payload) return;
+
+    if (type === "order_status" && payload.orderNumber) {
+      const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+      const cleanNum = String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase();
+      const cleanId = payload.orderId ? String(payload.orderId).trim().toLowerCase() : "";
+
+      const idx = orders.findIndex(
+        (o) =>
+          o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum ||
+          (cleanId && o.id.trim().toLowerCase() === cleanId)
+      );
+
+      if (idx !== -1 && orders[idx]) {
+        if (
+          orders[idx]!.status !== payload.status ||
+          orders[idx]!.cancelledBy !== payload.cancelledBy ||
+          orders[idx]!.cancellationReason !== payload.cancellationReason
+        ) {
+          orders[idx]!.status = payload.status;
+          if (payload.cancelledBy) orders[idx]!.cancelledBy = payload.cancelledBy;
+          if (payload.cancellationReason) orders[idx]!.cancellationReason = payload.cancellationReason;
+          if (payload.cancelledAt) orders[idx]!.cancelledAt = payload.cancelledAt;
+
+          safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+          window.dispatchEvent(
+            new CustomEvent("bwc_order_change", {
+              detail: payload,
+            })
+          );
+        }
+      } else if (payload.order) {
+        orders.unshift(payload.order);
+        safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+        window.dispatchEvent(
+          new CustomEvent("bwc_order_change", {
+            detail: payload,
+          })
+        );
+      }
+    } else if (type === "order_add" && payload.order) {
+      const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+      const cleanIncoming = String(payload.order.orderNumber).replace(/^#/, "").trim().toLowerCase();
+      const exists = orders.some(
+        (o) =>
+          o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanIncoming ||
+          o.id === payload.order.id
+      );
+      if (!exists) {
+        orders.unshift(payload.order);
+        safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+        window.dispatchEvent(
+          new CustomEvent("bwc_order_change", {
+            detail: payload,
+          })
+        );
+      }
+    } else if (type === "order_cancel" && payload.orderNumber) {
+      const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+      const cleanNum = String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase();
+      const idx = orders.findIndex((o) => o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum);
+      if (idx !== -1 && orders[idx] && orders[idx]!.status !== "cancelled") {
+        orders[idx]!.status = "cancelled";
+        orders[idx]!.cancelledBy = payload.by || "customer";
+        orders[idx]!.cancelledAt = payload.cancelledAt || Date.now();
+        safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+        window.dispatchEvent(
+          new CustomEvent("bwc_order_change", {
+            detail: payload,
+          })
+        );
+      }
+    } else if (type === "reservation_status" && payload.reservationNumber) {
+      const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+      const cleanNum = String(payload.reservationNumber).replace(/^#/, "").trim().toLowerCase();
+      const idx = reservations.findIndex(
+        (r) => r.reservationNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum
+      );
+      if (idx !== -1 && reservations[idx] && reservations[idx]!.status !== payload.status) {
+        reservations[idx]!.status = payload.status;
+        safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+        window.dispatchEvent(
+          new CustomEvent("bwc_reservation_change", {
+            detail: payload,
+          })
+        );
+      }
+    } else if (type === "reservation_add" && payload.reservation) {
+      const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+      const exists = reservations.some((r) => r.id === payload.reservation.id);
+      if (!exists) {
+        reservations.unshift(payload.reservation);
+        safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+        window.dispatchEvent(
+          new CustomEvent("bwc_reservation_change", {
+            detail: payload,
+          })
+        );
+      }
+    }
+  },
 };
+
+// Global SSE listener for instant cross-device updates (under 100ms)
+if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
+  let cloudEventSource: EventSource | null = null;
+  const connectCloudSSE = () => {
+    try {
+      if (cloudEventSource) {
+        cloudEventSource.close();
+      }
+      cloudEventSource = new EventSource(`https://ntfy.sh/${CLOUD_SYNC_TOPIC}/sse`);
+      cloudEventSource.onmessage = (event) => {
+        try {
+          const raw = JSON.parse(event.data);
+          if (raw.event === "message" && raw.message) {
+            const data = JSON.parse(raw.message);
+            if (data?.type && data?.payload) {
+              adminStore.handleIncomingCloudEvent(data.type, data.payload);
+            }
+          }
+        } catch {}
+      };
+      cloudEventSource.onerror = () => {
+        if (cloudEventSource) {
+          cloudEventSource.close();
+          cloudEventSource = null;
+        }
+        setTimeout(connectCloudSSE, 4000);
+      };
+    } catch {}
+  };
+  connectCloudSSE();
+}
 
 // Auto-trigger background server sync on initial client load
 if (typeof window !== "undefined") {

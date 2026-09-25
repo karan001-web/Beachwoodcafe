@@ -39,10 +39,24 @@ export function SiteHeader() {
   const [reserveOpen, setReserveOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
   const [trackOpen, setTrackOpen] = useState(false);
+  const [trackOrderNumber, setTrackOrderNumber] = useState<string | undefined>();
   const { totalCount, setIsCartOpen } = useCart();
   const [isScrolled, setIsScrolled] = useState(false);
   const isScrolledRef = useRef(false);
   const progressRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOpenTrackModal = (e: any) => {
+      const num = e?.detail?.orderNumber;
+      if (num) {
+        setTrackOrderNumber(num);
+      }
+      setTrackOpen(true);
+    };
+
+    window.addEventListener("bwc_open_track_modal", handleOpenTrackModal);
+    return () => window.removeEventListener("bwc_open_track_modal", handleOpenTrackModal);
+  }, []);
 
   useEffect(() => {
     let ticking = false;
@@ -78,12 +92,8 @@ export function SiteHeader() {
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
 
-    const handleOpenTrack = () => setTrackOpen(true);
-    window.addEventListener("bwc_open_track_modal", handleOpenTrack);
-
     return () => {
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("bwc_open_track_modal", handleOpenTrack);
     };
   }, []);
 
@@ -300,7 +310,14 @@ export function SiteHeader() {
       {/* Modals */}
       <ReservationModal isOpen={reserveOpen} onClose={() => setReserveOpen(false)} />
       <OrderModal isOpen={orderOpen} onClose={() => setOrderOpen(false)} />
-      <OrderTrackModal isOpen={trackOpen} onClose={() => setTrackOpen(false)} />
+      <OrderTrackModal
+        isOpen={trackOpen}
+        onClose={() => {
+          setTrackOpen(false);
+          setTrackOrderNumber(undefined);
+        }}
+        initialOrderNumber={trackOrderNumber}
+      />
     </>
   );
 }
