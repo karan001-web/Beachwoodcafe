@@ -616,12 +616,6 @@ export function AdminPage() {
     }, 400);
   };
 
-  const handleQuickFillDemo = () => {
-    const creds = adminStore.getCredentials();
-    setUsernameInput(creds.username);
-    setPasswordInput(creds.password);
-  };
-
   const handleLogout = () => {
     adminStore.logout();
     setIsAuthenticated(false);
@@ -910,24 +904,14 @@ export function AdminPage() {
             </button>
           </form>
 
-          {/* Quick Demo Autofill Helper */}
-          <div className="mt-5 pt-4 border-t border-[#1a3b6b]/15 text-center space-y-3">
-            <button
-              type="button"
-              onClick={handleQuickFillDemo}
-              className="w-full py-2 px-3 rounded-lg bg-white/70 hover:bg-white border border-[#1a3b6b]/20 text-[0.72rem] font-bold text-[#1a3b6b] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          <div className="mt-6 pt-4 border-t border-[#1a3b6b]/15 text-center">
+            <a
+              href="/"
+              className="text-xs text-[#1a3b6b] hover:underline font-semibold inline-flex items-center gap-1.5"
             >
-              <KeyRound className="size-3.5 text-[#d99214]" />
-              <span>Fill Default Admin Credentials (Demo)</span>
-            </button>
-
-            <div className="flex items-center justify-between text-[0.7rem] text-[#767064] px-1">
-              <span>Default user: 778800</span>
-              <a href="/" className="text-[#1a3b6b] hover:underline font-semibold flex items-center gap-1">
-                <span>Return to Site</span>
-                <ArrowRight className="size-3" />
-              </a>
-            </div>
+              <span>Return to Beachwood Cafe Website</span>
+              <ArrowRight className="size-3.5" />
+            </a>
           </div>
         </div>
       </div>
@@ -2858,7 +2842,7 @@ export function AdminPage() {
                   required
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="778800"
+                  placeholder="Enter new username"
                   className="w-full p-2.5 rounded-lg border border-[#c9bba6] text-[#191918]"
                 />
               </div>

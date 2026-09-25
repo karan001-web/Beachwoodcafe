@@ -119,10 +119,82 @@ const DEFAULT_MAINTENANCE: MaintenanceConfig = {
   updatedAt: "",
 };
 
-// Default Strong Credentials (can be updated in Admin Settings)
+// Pure JavaScript SHA-256 implementation (synchronous, zero-dependency)
+function sha256(ascii: string): string {
+  function rightRotate(value: number, amount: number) {
+    return (value >>> amount) | (value << (32 - amount));
+  }
+  const mathPow = Math.pow;
+  const maxWord = mathPow(2, 32);
+  let lengthProperty = "length";
+  let i: number, j: number;
+  let result = "";
+  const words: number[] = [];
+  const asciiBitLength = ascii.length * 8;
+  let hash: number[] = [];
+  const k: number[] = [];
+  let primeCounter = 0;
+
+  const isComposite: Record<number, number> = {};
+  for (let candidate = 2; primeCounter < 64; candidate++) {
+    if (!isComposite[candidate]) {
+      for (i = 0; i < 313; i += candidate) {
+        isComposite[i] = candidate;
+      }
+      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+    }
+  }
+  ascii += "\x80";
+  while ((ascii.length % 64) - 56) ascii += "\x00";
+  for (i = 0; i < ascii.length; i++) {
+    j = ascii.charCodeAt(i);
+    words[i >> 2] |= j << (((3 - i) % 4) * 8);
+  }
+  words[words.length] = (asciiBitLength / maxWord) | 0;
+  words[words.length] = asciiBitLength;
+
+  for (j = 0; j < words.length; ) {
+    const w = words.slice(j, (j += 16));
+    const oldHash = hash;
+    hash = hash.slice(0, 8);
+    for (i = 0; i < 64; i++) {
+      const w15 = w[i - 15],
+        w2 = w[i - 2];
+      const s0 = rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3);
+      const s1 = rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10);
+      const ch = (hash[4] & hash[5]) ^ (~hash[4] & hash[6]);
+      const maj = (hash[0] & hash[1]) ^ (hash[0] & hash[2]) ^ (hash[1] & hash[2]);
+      const temp1 =
+        hash[7] +
+        (rightRotate(hash[4], 6) ^ rightRotate(hash[4], 11) ^ rightRotate(hash[4], 25)) +
+        ch +
+        k[i] +
+        (w[i] =
+          i < 16
+            ? w[i]
+            : (w[i - 16] + s0 + w[i - 7] + s1) | 0);
+      const temp2 =
+        (rightRotate(hash[0], 2) ^ rightRotate(hash[0], 13) ^ rightRotate(hash[0], 22)) + maj;
+      hash = [(temp1 + temp2) | 0, hash[0], hash[1], hash[2], (hash[3] + temp1) | 0, hash[4], hash[5], hash[6]];
+    }
+    for (i = 0; i < 8; i++) {
+      hash[i] = (hash[i] + oldHash[i]) | 0;
+    }
+  }
+  for (i = 0; i < 8; i++) {
+    for (let b = 3; b >= 0; b--) {
+      const byte = (hash[i] >> (b * 8)) & 255;
+      result += (byte < 16 ? "0" : "") + byte.toString(16);
+    }
+  }
+  return result;
+}
+
+// Default Credentials - Stored only as SHA-256 hash (never plaintext)
 const DEFAULT_CREDS = {
   username: "778800",
-  password: "karan@4455",
+  passwordHash: "75ca0ab7b09a1603ef1c83b8c2d1de3acb078b9c92824803e156016f97948b3f",
 };
 
 // Helper: Safely get from localStorage
@@ -154,34 +226,46 @@ export const adminStore = {
   // --------------------------------------------------------------------------
   // 1. AUTHENTICATION
   // --------------------------------------------------------------------------
-  getCredentials() {
-    const creds = safeGetJSON(STORAGE_KEYS.ADMIN_CREDS, DEFAULT_CREDS);
-    // If it was the previous default, migrate to the new configured credentials
-    if (creds && creds.username === "admin_beachwood") {
-      safeSetJSON(STORAGE_KEYS.ADMIN_CREDS, DEFAULT_CREDS);
-      return DEFAULT_CREDS;
-    }
-    return creds;
+  getCredentials(): { username: string } {
+    const creds = safeGetJSON<{ username?: string; passwordHash?: string }>(
+      STORAGE_KEYS.ADMIN_CREDS,
+      DEFAULT_CREDS,
+    );
+    return {
+      username: creds?.username || DEFAULT_CREDS.username,
+    };
   },
 
   updateCredentials(newUsername: string, newPassword: string): boolean {
     if (!newUsername.trim() || newPassword.length < 8) return false;
     safeSetJSON(STORAGE_KEYS.ADMIN_CREDS, {
       username: newUsername.trim(),
-      password: newPassword,
+      passwordHash: sha256(newPassword),
     });
     return true;
   },
 
   login(usernameInput: string, passwordInput: string): boolean {
-    const creds = this.getCredentials();
-    const isValid =
-      usernameInput.trim() === creds.username && passwordInput === creds.password;
+    const rawCreds = safeGetJSON<{ username?: string; passwordHash?: string; password?: string }>(
+      STORAGE_KEYS.ADMIN_CREDS,
+      DEFAULT_CREDS,
+    );
+    const targetUsername = rawCreds?.username || DEFAULT_CREDS.username;
+    const inputHash = sha256(passwordInput);
+
+    // Secure verification: compare hashes (or migrate old plaintext entry if exists)
+    const isPasswordValid = rawCreds?.passwordHash
+      ? inputHash === rawCreds.passwordHash
+      : rawCreds?.password
+        ? passwordInput === rawCreds.password || inputHash === sha256(rawCreds.password)
+        : inputHash === DEFAULT_CREDS.passwordHash;
+
+    const isValid = usernameInput.trim() === targetUsername && isPasswordValid;
 
     if (isValid && typeof window !== "undefined") {
       const token = {
         authenticated: true,
-        username: creds.username,
+        username: targetUsername,
         loggedInAt: Date.now(),
       };
       sessionStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(token));
