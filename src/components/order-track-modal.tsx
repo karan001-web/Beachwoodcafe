@@ -16,9 +16,11 @@ import {
   ExternalLink,
   ChevronRight,
   ShieldAlert,
+  Printer,
 } from "lucide-react";
 import { adminStore, type AdminOrder } from "../lib/admin-store";
 import { site } from "../lib/site-content";
+import { printOrderReceipt } from "../lib/receipt-printer";
 
 interface OrderTrackModalProps {
   isOpen: boolean;
@@ -646,13 +648,49 @@ export function OrderTrackModal({
             <span>Live updates connected</span>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-outline-dark py-1.5 px-4 text-xs font-bold rounded-xl cursor-pointer"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            {selectedOrder && (
+              <button
+                type="button"
+                onClick={() => {
+                  printOrderReceipt({
+                    orderId: selectedOrder.orderNumber,
+                    placedAt: selectedOrder.placedAt,
+                    name: selectedOrder.customerName,
+                    phone: selectedOrder.customerPhone,
+                    email: selectedOrder.customerEmail,
+                    fulfilmentType: selectedOrder.fulfilmentType,
+                    deliveryAddress: selectedOrder.deliveryAddress,
+                    deliveryApt: selectedOrder.deliveryApt,
+                    deliveryCity: selectedOrder.deliveryCity,
+                    deliveryZip: selectedOrder.deliveryZip,
+                    includeUtensils: selectedOrder.includeUtensils,
+                    orderNote: selectedOrder.orderNote,
+                    paymentMethod: selectedOrder.paymentMethod,
+                    cardLast4: selectedOrder.cardLast4,
+                    items: selectedOrder.items,
+                    subtotal: selectedOrder.subtotal,
+                    discountAmount: selectedOrder.discountAmount,
+                    tax: selectedOrder.tax,
+                    deliveryFee: selectedOrder.deliveryFee,
+                    tipAmount: selectedOrder.tipAmount,
+                    grandTotal: selectedOrder.grandTotal,
+                  });
+                }}
+                className="py-1.5 px-3 rounded-xl bg-white border border-[#c9bba6] hover:bg-[#ede4d5] text-[#191918] font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+              >
+                <Printer className="size-3.5 text-[#d99214]" />
+                <span>Print Receipt</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn-outline-dark py-1.5 px-4 text-xs font-bold rounded-xl cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -27,6 +27,7 @@ import {
 import { useCart, parseItemPrice } from "../lib/cart-context";
 import { site } from "../lib/site-content";
 import { adminStore } from "../lib/admin-store";
+import { printOrderReceipt } from "../lib/receipt-printer";
 
 type CheckoutStep = "items" | "checkout" | "confirmed";
 type FulfilmentType = "pickup" | "delivery";
@@ -1564,7 +1565,7 @@ export function CartDrawer() {
 
                     <button
                       type="button"
-                      onClick={() => window.print()}
+                      onClick={() => printOrderReceipt(confirmedOrder)}
                       className="py-2.5 px-3 rounded-xl font-bold text-xs uppercase tracking-wider text-[#595347] bg-white border border-[#c9bba6] hover:bg-[#ede4d5] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >
                       <Printer className="size-3.5" />

@@ -55,6 +55,7 @@ import {
   type AdminNotification,
 } from "../lib/admin-store";
 import { site } from "../lib/site-content";
+import { printKitchenTicket, printOrderReceipt } from "../lib/receipt-printer";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -2613,15 +2614,70 @@ export function AdminPage() {
             </div>
 
             {/* Action Buttons */}
-            <div className="pt-3 border-t border-[#1a3b6b]/15 flex gap-2">
+            <div className="pt-3 border-t border-[#1a3b6b]/15 flex flex-wrap gap-2">
               <button
-                onClick={() => window.print()}
-                className="flex-1 py-2.5 rounded-xl bg-[#1a3b6b] text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                type="button"
+                onClick={() => {
+                  printKitchenTicket({
+                    orderId: selectedOrder.orderNumber,
+                    placedAt: selectedOrder.placedAt,
+                    name: selectedOrder.customerName,
+                    phone: selectedOrder.customerPhone,
+                    email: selectedOrder.customerEmail,
+                    fulfilmentType: selectedOrder.fulfilmentType,
+                    deliveryAddress: selectedOrder.deliveryAddress,
+                    deliveryApt: selectedOrder.deliveryApt,
+                    includeUtensils: selectedOrder.includeUtensils,
+                    orderNote: selectedOrder.orderNote,
+                    paymentMethod: selectedOrder.paymentMethod,
+                    items: selectedOrder.items,
+                    subtotal: selectedOrder.subtotal,
+                    discountAmount: selectedOrder.discountAmount,
+                    tax: selectedOrder.tax,
+                    deliveryFee: selectedOrder.deliveryFee,
+                    tipAmount: selectedOrder.tipAmount,
+                    grandTotal: selectedOrder.grandTotal,
+                  });
+                }}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-[#1a3b6b] hover:bg-[#122a4f] text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
               >
                 <Printer className="size-3.5" />
                 <span>Print Kitchen Ticket</span>
               </button>
               <button
+                type="button"
+                onClick={() => {
+                  printOrderReceipt({
+                    orderId: selectedOrder.orderNumber,
+                    placedAt: selectedOrder.placedAt,
+                    name: selectedOrder.customerName,
+                    phone: selectedOrder.customerPhone,
+                    email: selectedOrder.customerEmail,
+                    fulfilmentType: selectedOrder.fulfilmentType,
+                    deliveryAddress: selectedOrder.deliveryAddress,
+                    deliveryApt: selectedOrder.deliveryApt,
+                    deliveryCity: selectedOrder.deliveryCity,
+                    deliveryZip: selectedOrder.deliveryZip,
+                    includeUtensils: selectedOrder.includeUtensils,
+                    orderNote: selectedOrder.orderNote,
+                    paymentMethod: selectedOrder.paymentMethod,
+                    cardLast4: selectedOrder.cardLast4,
+                    items: selectedOrder.items,
+                    subtotal: selectedOrder.subtotal,
+                    discountAmount: selectedOrder.discountAmount,
+                    tax: selectedOrder.tax,
+                    deliveryFee: selectedOrder.deliveryFee,
+                    tipAmount: selectedOrder.tipAmount,
+                    grandTotal: selectedOrder.grandTotal,
+                  });
+                }}
+                className="py-2.5 px-3 rounded-xl bg-white border border-[#c9bba6] hover:bg-[#ede4d5] text-[#191918] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Printer className="size-3.5 text-[#d99214]" />
+                <span>Print Receipt</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setSelectedOrder(null)}
                 className="py-2.5 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-bold text-gray-700 cursor-pointer"
               >

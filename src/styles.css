@@ -990,3 +990,33 @@ button:focus-visible {
   color: #1a3b6b;
   border-bottom-color: #d99214;
 }
+
+/* ========================================================================= */
+/* DEDICATED PRINT OPTIMIZATION (PREVENTS MULTI-PAGE BLEED & DUPLICATION)   */
+/* ========================================================================= */
+@media print {
+  @page {
+    size: portrait;
+    margin: 8mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12px !important;
+  }
+
+  /* Hide interactive fixed widgets, navigation, and audio player during print */
+  .mobile-actions,
+  #bwc-audio-player,
+  .skip-link,
+  .cart-drawer-backdrop {
+    display: none !important;
+  }
+
+  /* Prevent page elements from breaking awkwardly */
+  img, svg, table, blockquote {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
