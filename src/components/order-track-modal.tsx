@@ -85,9 +85,9 @@ export function OrderTrackModal({
 
     // 2. If actively tracking an order, keep tracking THAT exact order
     const activeTarget =
+      selectedOrderRef.current?.orderNumber ||
       targetOrderNumber ||
-      initialOrderNumber ||
-      selectedOrderRef.current?.orderNumber;
+      initialOrderNumber;
 
     if (activeTarget) {
       const match = adminStore.findOrder(activeTarget);
@@ -168,8 +168,9 @@ export function OrderTrackModal({
           const evNum = changedOrderNum ? String(changedOrderNum).replace(/^#/, "").trim().toLowerCase() : "";
           const evId = changedOrderId ? String(changedOrderId).trim().toLowerCase() : "";
 
-          // If it is NOT our order, DO NOT change or switch our view!
-          if ((evNum && evNum !== currentNum) || (evId && evId !== currentId)) {
+          // If neither matches our order, ignore!
+          const isOurOrder = (evNum && evNum === currentNum) || (evId && evId === currentId);
+          if (!isOurOrder) {
             // Background update recent orders list without changing active order
             const recents = adminStore.getCustomerRecentOrders();
             setRecentOrders(recents);

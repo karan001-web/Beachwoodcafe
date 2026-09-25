@@ -128,12 +128,10 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
           const idx = serverOrders.findIndex((o) => {
             if (!o) return false;
-            if (ord.id && o.id === ord.id) return true;
-            if (ord.orderNumber && o.orderNumber === ord.orderNumber) return true;
             const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
             const oId = o.id ? String(o.id).trim().toLowerCase() : "";
-            if (cleanIncomingNum && (oNum === cleanIncomingNum || oId === cleanIncomingNum)) return true;
-            if (cleanIncomingId && (oId === cleanIncomingId || oNum === cleanIncomingId)) return true;
+            if (cleanIncomingNum && oNum === cleanIncomingNum) return true;
+            if (cleanIncomingId && oId === cleanIncomingId) return true;
             return false;
           });
 
@@ -195,9 +193,6 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           if (cleanNum && oNum === cleanNum) return true;
           // Exact id matches next
           if (cleanId && oId === cleanId) return true;
-          // Fallback cross matches
-          if (cleanNum && oId === cleanNum) return true;
-          if (cleanId && oNum === cleanId) return true;
           return false;
         });
 

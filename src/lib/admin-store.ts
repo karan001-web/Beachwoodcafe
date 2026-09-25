@@ -230,8 +230,10 @@ function safeSetJSON(key: string, data: unknown) {
 // ============================================================================
 // CROSS-TAB & CROSS-DEVICE CLOUD REAL-TIME PUB/SUB RELAY
 // ============================================================================
-const SYNC_CHANNEL_NAME = "bwc_admin_sync_v1";
-const CLOUD_SYNC_TOPIC = "bwc_beachwood_live_orders_v1";
+const CLIENT_SESSION_ID =
+  "bwc_sess_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
+const SYNC_CHANNEL_NAME = "bwc_admin_sync_v2";
+const CLOUD_SYNC_TOPIC = "bwc_beachwood_live_orders_v2";
 let syncChannel: BroadcastChannel | null = null;
 
 if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
@@ -240,6 +242,7 @@ if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
     syncChannel.onmessage = (event) => {
       if (!event?.data) return;
       const { type, payload } = event.data;
+      if (payload?._senderSessionId === CLIENT_SESSION_ID) return;
       if (
         type === "order_add" ||
         type === "order_status" ||
@@ -266,10 +269,14 @@ if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
 function publishCloudEvent(type: string, payload: any) {
   if (typeof window === "undefined") return;
   try {
+    const wrappedPayload = {
+      ...payload,
+      _senderSessionId: CLIENT_SESSION_ID,
+    };
     fetch(`https://ntfy.sh/${CLOUD_SYNC_TOPIC}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, payload, senderId: Date.now() }),
+      body: JSON.stringify({ type, payload: wrappedPayload, senderId: CLIENT_SESSION_ID }),
     }).catch(() => {});
   } catch {}
 }
@@ -456,10 +463,12 @@ export const adminStore = {
     const cleanNum = orderNumber ? String(orderNumber).trim().toLowerCase().replace(/^#/, "") : "";
 
     const idx = orders.findIndex((o) => {
-      const oId = (o.id || "").trim().toLowerCase();
       const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-      if (cleanId && (oId === cleanId || oNum === cleanId)) return true;
-      if (cleanNum && (oNum === cleanNum || oId === cleanNum)) return true;
+      const oId = (o.id || "").trim().toLowerCase();
+      // Match by exact orderNumber first
+      if (cleanNum && oNum === cleanNum) return true;
+      // Match by exact ID
+      if (cleanId && oId === cleanId) return true;
       return false;
     });
     if (idx === -1 || !orders[idx]) return false;
@@ -1444,12 +1453,11 @@ export const adminStore = {
 
         const existingIdx = mergedOrders.findIndex((o) => {
           if (!o) return false;
-          if (remote.id && o.id === remote.id) return true;
-          if (remote.orderNumber && o.orderNumber === remote.orderNumber) return true;
           const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
           const oId = o.id ? String(o.id).trim().toLowerCase() : "";
-          if (cleanRemoteNum && (oNum === cleanRemoteNum || oId === cleanRemoteNum)) return true;
-          if (cleanRemoteId && (oId === cleanRemoteId || oNum === cleanRemoteId)) return true;
+          // Strict exact matching: orderNumber matches orderNumber, or id matches id
+          if (cleanRemoteNum && oNum === cleanRemoteNum) return true;
+          if (cleanRemoteId && oId === cleanRemoteId) return true;
           return false;
         });
 
@@ -1477,7 +1485,14 @@ export const adminStore = {
               remote.cancellationReason !== current.cancellationReason ||
               remote.cancelledAt !== current.cancelledAt)
           ) {
-            mergedOrders[existingIdx] = { ...current, ...remote };
+            // ONLY update mutable status attributes; never overwrite identity
+            mergedOrders[existingIdx] = {
+              ...current,
+              status: remote.status || current.status,
+              cancelledBy: remote.cancelledBy || current.cancelledBy,
+              cancellationReason: remote.cancellationReason || current.cancellationReason,
+              cancelledAt: remote.cancelledAt || current.cancelledAt,
+            };
             updatedOrdersCount++;
           }
         }
@@ -1556,11 +1571,10 @@ export const adminStore = {
         const cleanId = lo.id ? String(lo.id).trim().toLowerCase() : "";
         return !remoteOrders.some((ro) => {
           if (!ro) return false;
-          if (ro.id && lo.id && ro.id === lo.id) return true;
           const cleanRo = ro.orderNumber ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
           const cleanRoId = ro.id ? String(ro.id).trim().toLowerCase() : "";
-          if (cleanLo && (cleanRo === cleanLo || cleanRoId === cleanLo)) return true;
-          if (cleanId && (cleanRoId === cleanId || cleanRo === cleanId)) return true;
+          if (cleanLo && cleanRo === cleanLo) return true;
+          if (cleanId && cleanRoId === cleanId) return true;
           return false;
         });
       });
@@ -1623,11 +1637,13 @@ export const adminStore = {
       const cleanNum = String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase();
       const cleanId = payload.orderId ? String(payload.orderId).trim().toLowerCase() : "";
 
-      const idx = orders.findIndex(
-        (o) =>
-          o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum ||
-          (cleanId && o.id.trim().toLowerCase() === cleanId)
-      );
+      const idx = orders.findIndex((o) => {
+        const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const oId = (o.id || "").trim().toLowerCase();
+        if (cleanNum && oNum === cleanNum) return true;
+        if (cleanId && oId === cleanId) return true;
+        return false;
+      });
 
       if (idx !== -1 && orders[idx]) {
         if (
@@ -1736,13 +1752,15 @@ if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
       if (cloudEventSource) {
         cloudEventSource.close();
       }
-      cloudEventSource = new EventSource(`https://ntfy.sh/${CLOUD_SYNC_TOPIC}/sse`);
+      cloudEventSource = new EventSource(`https://ntfy.sh/${CLOUD_SYNC_TOPIC}/sse?since=now`);
       cloudEventSource.onmessage = (event) => {
         try {
           const raw = JSON.parse(event.data);
           if (raw.event === "message" && raw.message) {
             const data = JSON.parse(raw.message);
             if (data?.type && data?.payload) {
+              // Ignore messages generated by our own browser tab
+              if (data.payload._senderSessionId === CLIENT_SESSION_ID) return;
               adminStore.handleIncomingCloudEvent(data.type, data.payload);
             }
           }
