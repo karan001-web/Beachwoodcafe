@@ -64,8 +64,11 @@ interface StoredReservation {
   [key: string]: any;
 }
 
-const serverOrders: StoredOrder[] = [];
-const serverReservations: StoredReservation[] = [];
+let serverOrders: StoredOrder[] = [];
+let serverReservations: StoredReservation[] = [];
+const serverDeletedOrderIds: Set<string> = new Set();
+const serverDeletedResIds: Set<string> = new Set();
+let serverClearedAt = 0;
 
 const corsHeaders: Record<string, string> = {
   "content-type": "application/json; charset=utf-8",
@@ -125,6 +128,11 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             ? String(ord.orderNumber).replace(/^#/, "").trim().toLowerCase()
             : "";
           const cleanIncomingId = ord.id ? String(ord.id).trim().toLowerCase() : "";
+
+          // Do NOT restore deleted orders or orders placed prior to clear-all
+          if (cleanIncomingNum && serverDeletedOrderIds.has(cleanIncomingNum)) continue;
+          if (cleanIncomingId && serverDeletedOrderIds.has(cleanIncomingId)) continue;
+          if (serverClearedAt && ord.timestamp && ord.timestamp <= serverClearedAt) continue;
 
           const idx = serverOrders.findIndex((o) => {
             if (!o) return false;
@@ -222,6 +230,44 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
     }
   }
 
+  // Delete order endpoint
+  if (path === "/api/orders/delete") {
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        const cleanId = String(body?.orderId || "").trim().toLowerCase();
+        const cleanNum = String(body?.orderNumber || "").trim().toLowerCase().replace(/^#/, "");
+
+        if (cleanId) serverDeletedOrderIds.add(cleanId);
+        if (cleanNum) serverDeletedOrderIds.add(cleanNum);
+
+        const prevCount = serverOrders.length;
+        serverOrders = serverOrders.filter((o) => {
+          if (!o) return false;
+          const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+          if (cleanNum && oNum === cleanNum) return false;
+          if (cleanId && oId === cleanId) return false;
+          return true;
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            deletedCount: prevCount - serverOrders.length,
+            remaining: serverOrders.length,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: err?.message }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
   // 3. Reservations endpoints
   if (path === "/api/reservations" || path === "/api/reservations/") {
     if (request.method === "GET") {
@@ -251,14 +297,17 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             : "";
           const cleanIncomingId = res.id ? String(res.id).trim().toLowerCase() : "";
 
+          // Do NOT restore deleted reservations or reservations placed prior to clear-all
+          if (cleanIncomingNum && serverDeletedResIds.has(cleanIncomingNum)) continue;
+          if (cleanIncomingId && serverDeletedResIds.has(cleanIncomingId)) continue;
+          if (serverClearedAt && res.timestamp && res.timestamp <= serverClearedAt) continue;
+
           const idx = serverReservations.findIndex((r) => {
             if (!r) return false;
-            if (res.id && r.id === res.id) return true;
-            if (res.reservationNumber && r.reservationNumber === res.reservationNumber) return true;
             const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
             const rId = r.id ? String(r.id).trim().toLowerCase() : "";
-            if (cleanIncomingNum && (rNum === cleanIncomingNum || rId === cleanIncomingNum)) return true;
-            if (cleanIncomingId && (rId === cleanIncomingId || rNum === cleanIncomingId)) return true;
+            if (cleanIncomingNum && rNum === cleanIncomingNum) return true;
+            if (cleanIncomingId && rId === cleanIncomingId) return true;
             return false;
           });
 
@@ -309,12 +358,10 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
         const idx = serverReservations.findIndex((r) => {
           if (!r) return false;
-          if (resId && r.id === resId) return true;
-          if (reservationNumber && r.reservationNumber === reservationNumber) return true;
           const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
           const rId = r.id ? String(r.id).trim().toLowerCase() : "";
-          if (cleanId && (rId === cleanId || rNum === cleanId)) return true;
-          if (cleanNum && (rId === cleanNum || rNum === cleanNum)) return true;
+          if (cleanNum && rNum === cleanNum) return true;
+          if (cleanId && rId === cleanId) return true;
           return false;
         });
 
@@ -336,6 +383,59 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           { status: 400, headers: corsHeaders }
         );
       }
+    }
+  }
+
+  // Delete reservation endpoint
+  if (path === "/api/reservations/delete") {
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        const cleanId = String(body?.resId || "").trim().toLowerCase();
+        const cleanNum = String(body?.reservationNumber || "").trim().toLowerCase().replace(/^#/, "");
+
+        if (cleanId) serverDeletedResIds.add(cleanId);
+        if (cleanNum) serverDeletedResIds.add(cleanNum);
+
+        const prevCount = serverReservations.length;
+        serverReservations = serverReservations.filter((r) => {
+          if (!r) return false;
+          const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const rId = r.id ? String(r.id).trim().toLowerCase() : "";
+          if (cleanNum && rNum === cleanNum) return false;
+          if (cleanId && rId === cleanId) return false;
+          return true;
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            deletedCount: prevCount - serverReservations.length,
+            remaining: serverReservations.length,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: err?.message }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
+  // Clear all data endpoint (orders, reservations, and caches)
+  if (path === "/api/clear-all" || path === "/api/clear-all/") {
+    if (request.method === "POST") {
+      serverOrders = [];
+      serverReservations = [];
+      serverDeletedOrderIds.clear();
+      serverDeletedResIds.clear();
+      serverClearedAt = Date.now();
+      return new Response(
+        JSON.stringify({ success: true, message: "All server orders and reservations cleared" }),
+        { status: 200, headers: corsHeaders }
+      );
     }
   }
 

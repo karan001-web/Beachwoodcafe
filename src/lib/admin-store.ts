@@ -110,6 +110,9 @@ const STORAGE_KEYS = {
   LAST_ORDER_ID: "bwc_last_placed_order_id",
   NOTIFICATIONS: "bwc_admin_notifications_v1",
   SOUND_ENABLED: "bwc_admin_sound_enabled_v1",
+  DELETED_ORDER_IDS: "bwc_admin_deleted_orders_v1",
+  DELETED_RES_IDS: "bwc_admin_deleted_reservations_v1",
+  DATA_CLEARED_AT: "bwc_admin_data_cleared_at_v1",
 };
 
 const DEFAULT_MAINTENANCE: MaintenanceConfig = {
@@ -746,15 +749,55 @@ export const adminStore = {
     } catch {}
   },
 
-  deleteOrder(orderId: string): boolean {
+  deleteOrder(orderId: string, orderNumber?: string): boolean {
+    const cleanId = orderId ? String(orderId).trim().toLowerCase() : "";
+    const cleanNum = orderNumber ? String(orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+
+    // 1. Filter out of local orders
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const filtered = orders.filter((o) => o.id !== orderId && o.orderNumber !== orderId);
+    const filtered = orders.filter((o) => {
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const oId = (o.id || "").trim().toLowerCase();
+      if (cleanNum && oNum === cleanNum) return false;
+      if (cleanId && oId === cleanId) return false;
+      return true;
+    });
     safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
+
+    // 2. Add to tombstone registry so sync never resurrects it
+    const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
+    if (cleanId && !deleted.includes(cleanId)) deleted.push(cleanId);
+    safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deleted.slice(-200));
+
+    // 3. Remove from customer order list if present
+    try {
+      const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+      const updatedCustomerIds = customerOrderIds.filter((id) => {
+        const c = String(id).replace(/^#/, "").trim().toLowerCase();
+        return c !== cleanNum && c !== cleanId;
+      });
+      safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, updatedCustomerIds);
+      const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+      if (lastId && (lastId === cleanNum || lastId === cleanId)) {
+        localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+      }
+    } catch {}
+
+    // 4. Send delete to server API
+    fetch("/api/orders/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, orderNumber }),
+    }).catch(() => {});
+
+    // 5. Broadcast to other tabs & devices
+    broadcastEvent("order_delete", { orderId, orderNumber, action: "delete" });
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
-          detail: { orderId, action: "delete" },
+          detail: { orderId, orderNumber, action: "delete" },
         })
       );
     }
@@ -865,18 +908,40 @@ export const adminStore = {
     return true;
   },
 
-  deleteReservation(resId: string): boolean {
+  deleteReservation(resId: string, reservationNumber?: string): boolean {
+    const cleanId = resId ? String(resId).trim().toLowerCase() : "";
+    const cleanNum = reservationNumber ? String(reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
-    const filtered = reservations.filter(
-      (r) => r.id !== resId && r.reservationNumber !== resId
-    );
+    const filtered = reservations.filter((r) => {
+      const rNum = (r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const rId = (r.id || "").trim().toLowerCase();
+      if (cleanNum && rNum === cleanNum) return false;
+      if (cleanId && rId === cleanId) return false;
+      return true;
+    });
     safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
 
+    // 2. Add to tombstone registry so sync never resurrects it
+    const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
+    if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
+    if (cleanId && !deleted.includes(cleanId)) deleted.push(cleanId);
+    safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, deleted.slice(-200));
+
+    // 3. Send delete to server API
+    fetch("/api/reservations/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resId, reservationNumber }),
+    }).catch(() => {});
+
+    // 4. Broadcast
+    broadcastEvent("reservation_delete", { resId, reservationNumber, action: "delete" });
+
     if (typeof window !== "undefined") {
-      broadcastEvent("reservation_delete", { resId, action: "delete" });
       window.dispatchEvent(
         new CustomEvent("bwc_reservation_change", {
-          detail: { resId, action: "delete" },
+          detail: { resId, reservationNumber, action: "delete" },
         })
       );
     }
@@ -1331,14 +1396,31 @@ export const adminStore = {
   },
 
   // Clear all data
-  clearAllData() {
+  async clearAllData() {
+    const now = Date.now();
     safeSetJSON(STORAGE_KEYS.ORDERS, []);
     safeSetJSON(STORAGE_KEYS.RESERVATIONS, []);
     safeSetJSON(STORAGE_KEYS.WHATSAPP_LOGS, []);
     safeSetJSON(STORAGE_KEYS.VISITOR_LOGS, []);
     safeSetJSON(STORAGE_KEYS.NOTIFICATIONS, []);
+    safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+    safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, []);
     if (typeof window !== "undefined") {
       localStorage.setItem(STORAGE_KEYS.VISITOR_COUNT, "0");
+      localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+      localStorage.setItem(STORAGE_KEYS.DATA_CLEARED_AT, String(now));
+    }
+
+    try {
+      await fetch("/api/clear-all", { method: "POST" });
+    } catch {}
+
+    broadcastEvent("clear_all", { timestamp: now });
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("bwc_order_change", { detail: { action: "clear_all" } }));
+      window.dispatchEvent(new CustomEvent("bwc_reservation_change", { detail: { action: "clear_all" } }));
     }
   },
 
@@ -1435,6 +1517,13 @@ export const adminStore = {
         ? data.reservations
         : [];
 
+      const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+      const deletedResIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
+      const clearedAt =
+        typeof window !== "undefined"
+          ? parseInt(localStorage.getItem(STORAGE_KEYS.DATA_CLEARED_AT) || "0", 10)
+          : 0;
+
       let newOrdersCount = 0;
       let updatedOrdersCount = 0;
       let newReservationsCount = 0;
@@ -1450,6 +1539,11 @@ export const adminStore = {
           ? String(remote.orderNumber).replace(/^#/, "").trim().toLowerCase()
           : "";
         const cleanRemoteId = remote.id ? String(remote.id).trim().toLowerCase() : "";
+
+        // Skip orders that have been deleted or were placed before clear-all
+        if (cleanRemoteNum && deletedOrderIds.includes(cleanRemoteNum)) continue;
+        if (cleanRemoteId && deletedOrderIds.includes(cleanRemoteId)) continue;
+        if (clearedAt && remote.timestamp && remote.timestamp <= clearedAt) continue;
 
         const existingIdx = mergedOrders.findIndex((o) => {
           if (!o) return false;
@@ -1507,14 +1601,17 @@ export const adminStore = {
           : "";
         const cleanRemoteId = remote.id ? String(remote.id).trim().toLowerCase() : "";
 
+        // Skip reservations that have been deleted or were placed before clear-all
+        if (cleanRemoteResNum && deletedResIds.includes(cleanRemoteResNum)) continue;
+        if (cleanRemoteId && deletedResIds.includes(cleanRemoteId)) continue;
+        if (clearedAt && remote.timestamp && remote.timestamp <= clearedAt) continue;
+
         const existingIdx = mergedReservations.findIndex((r) => {
           if (!r) return false;
-          if (remote.id && r.id === remote.id) return true;
-          if (remote.reservationNumber && r.reservationNumber === remote.reservationNumber) return true;
           const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
           const rId = r.id ? String(r.id).trim().toLowerCase() : "";
-          if (cleanRemoteResNum && (rNum === cleanRemoteResNum || rId === cleanRemoteResNum)) return true;
-          if (cleanRemoteId && (rId === cleanRemoteId || rNum === cleanRemoteId)) return true;
+          if (cleanRemoteResNum && rNum === cleanRemoteResNum) return true;
+          if (cleanRemoteId && rId === cleanRemoteId) return true;
           return false;
         });
 
@@ -1569,6 +1666,9 @@ export const adminStore = {
         if (!lo) return false;
         const cleanLo = lo.orderNumber ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
         const cleanId = lo.id ? String(lo.id).trim().toLowerCase() : "";
+        if (cleanLo && deletedOrderIds.includes(cleanLo)) return false;
+        if (cleanId && deletedOrderIds.includes(cleanId)) return false;
+        if (clearedAt && lo.timestamp && lo.timestamp <= clearedAt) return false;
         return !remoteOrders.some((ro) => {
           if (!ro) return false;
           const cleanRo = ro.orderNumber ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
@@ -1593,15 +1693,17 @@ export const adminStore = {
           ? String(lr.reservationNumber).replace(/^#/, "").trim().toLowerCase()
           : "";
         const cleanId = lr.id ? String(lr.id).trim().toLowerCase() : "";
+        if (cleanLr && deletedResIds.includes(cleanLr)) return false;
+        if (cleanId && deletedResIds.includes(cleanId)) return false;
+        if (clearedAt && lr.timestamp && lr.timestamp <= clearedAt) return false;
         return !remoteReservations.some((rr) => {
           if (!rr) return false;
-          if (rr.id && lr.id && rr.id === lr.id) return true;
           const cleanRr = rr.reservationNumber
             ? String(rr.reservationNumber).replace(/^#/, "").trim().toLowerCase()
             : "";
           const cleanRrId = rr.id ? String(rr.id).trim().toLowerCase() : "";
-          if (cleanLr && (cleanRr === cleanLr || cleanRrId === cleanLr)) return true;
-          if (cleanId && (cleanRrId === cleanId || cleanRr === cleanId)) return true;
+          if (cleanLr && cleanRr === cleanLr) return true;
+          if (cleanId && cleanRrId === cleanId) return true;
           return false;
         });
       });
@@ -1682,8 +1784,18 @@ export const adminStore = {
       if (!this.isAuthenticated()) {
         return;
       }
-      const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const cleanIncoming = String(payload.order.orderNumber).replace(/^#/, "").trim().toLowerCase();
+      const cleanIncomingId = payload.order.id ? String(payload.order.id).trim().toLowerCase() : "";
+      const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+      if (cleanIncoming && deletedOrderIds.includes(cleanIncoming)) return;
+      if (cleanIncomingId && deletedOrderIds.includes(cleanIncomingId)) return;
+      const clearedAt =
+        typeof window !== "undefined"
+          ? parseInt(localStorage.getItem(STORAGE_KEYS.DATA_CLEARED_AT) || "0", 10)
+          : 0;
+      if (clearedAt && payload.order.timestamp && payload.order.timestamp <= clearedAt) return;
+
+      const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const exists = orders.some(
         (o) =>
           o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanIncoming ||
@@ -1713,6 +1825,29 @@ export const adminStore = {
           })
         );
       }
+    } else if (type === "order_delete") {
+      const cleanNum = payload.orderNumber ? String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+      const cleanId = payload.orderId ? String(payload.orderId).trim().toLowerCase() : "";
+      const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+      const filtered = orders.filter((o) => {
+        const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const oId = (o.id || "").trim().toLowerCase();
+        if (cleanNum && oNum === cleanNum) return false;
+        if (cleanId && oId === cleanId) return false;
+        return true;
+      });
+      safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
+
+      const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+      if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
+      if (cleanId && !deleted.includes(cleanId)) deleted.push(cleanId);
+      safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deleted.slice(-200));
+
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", {
+          detail: { ...payload, action: "delete" },
+        })
+      );
     } else if (type === "reservation_status" && payload.reservationNumber) {
       const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
       const cleanNum = String(payload.reservationNumber).replace(/^#/, "").trim().toLowerCase();
@@ -1729,6 +1864,17 @@ export const adminStore = {
         );
       }
     } else if (type === "reservation_add" && payload.reservation) {
+      const cleanIncoming = String(payload.reservation.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const cleanIncomingId = payload.reservation.id ? String(payload.reservation.id).trim().toLowerCase() : "";
+      const deletedResIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
+      if (cleanIncoming && deletedResIds.includes(cleanIncoming)) return;
+      if (cleanIncomingId && deletedResIds.includes(cleanIncomingId)) return;
+      const clearedAt =
+        typeof window !== "undefined"
+          ? parseInt(localStorage.getItem(STORAGE_KEYS.DATA_CLEARED_AT) || "0", 10)
+          : 0;
+      if (clearedAt && payload.reservation.timestamp && payload.reservation.timestamp <= clearedAt) return;
+
       const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
       const exists = reservations.some((r) => r.id === payload.reservation.id);
       if (!exists) {
@@ -1740,6 +1886,45 @@ export const adminStore = {
           })
         );
       }
+    } else if (type === "reservation_delete") {
+      const cleanNum = payload.reservationNumber ? String(payload.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+      const cleanId = payload.resId ? String(payload.resId).trim().toLowerCase() : "";
+      const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+      const filtered = reservations.filter((r) => {
+        const rNum = (r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const rId = (r.id || "").trim().toLowerCase();
+        if (cleanNum && rNum === cleanNum) return false;
+        if (cleanId && rId === cleanId) return false;
+        return true;
+      });
+      safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
+
+      const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
+      if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
+      if (cleanId && !deleted.includes(cleanId)) deleted.push(cleanId);
+      safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, deleted.slice(-200));
+
+      window.dispatchEvent(
+        new CustomEvent("bwc_reservation_change", {
+          detail: { ...payload, action: "delete" },
+        })
+      );
+    } else if (type === "clear_all") {
+      safeSetJSON(STORAGE_KEYS.ORDERS, []);
+      safeSetJSON(STORAGE_KEYS.RESERVATIONS, []);
+      safeSetJSON(STORAGE_KEYS.WHATSAPP_LOGS, []);
+      safeSetJSON(STORAGE_KEYS.VISITOR_LOGS, []);
+      safeSetJSON(STORAGE_KEYS.NOTIFICATIONS, []);
+      safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(STORAGE_KEYS.VISITOR_COUNT, "0");
+        localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+        if (payload?.timestamp) {
+          localStorage.setItem(STORAGE_KEYS.DATA_CLEARED_AT, String(payload.timestamp));
+        }
+      }
+      window.dispatchEvent(new CustomEvent("bwc_order_change", { detail: { action: "clear_all" } }));
+      window.dispatchEvent(new CustomEvent("bwc_reservation_change", { detail: { action: "clear_all" } }));
     }
   },
 };

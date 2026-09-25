@@ -658,11 +658,16 @@ export function AdminPage() {
   };
 
   // Clear all data
-  const handleClearAllData = () => {
-    if (window.confirm("Are you sure you want to clear all orders, reservations and logs?")) {
-      adminStore.clearAllData();
+  const handleClearAllData = async () => {
+    if (
+      window.confirm(
+        "Are you sure you want to permanently clear ALL orders, table bookings and activity logs? This will reset data from both this device and the cloud server."
+      )
+    ) {
+      await adminStore.clearAllData();
       loadData();
-      showNotification("All store data has been reset.");
+      setSelectedOrder(null);
+      showNotification("All store data has been completely cleared.");
     }
   };
 
@@ -682,12 +687,20 @@ export function AdminPage() {
   };
 
   // Delete Order
-  const handleDeleteOrder = (orderId: string) => {
-    if (window.confirm("Permanently delete this order record?")) {
-      adminStore.deleteOrder(orderId);
+  const handleDeleteOrder = (orderId: string, orderNumber?: string) => {
+    const label = orderNumber ? `#${orderNumber}` : "this order";
+    if (window.confirm(`Permanently delete order ${label}?`)) {
+      adminStore.deleteOrder(orderId, orderNumber);
       loadData();
-      if (selectedOrder?.id === orderId) setSelectedOrder(null);
-      showNotification("Order record deleted.");
+      if (
+        selectedOrder &&
+        (selectedOrder.id === orderId ||
+          (orderNumber && selectedOrder.orderNumber === orderNumber) ||
+          selectedOrder.orderNumber.replace(/^#/, "") === (orderNumber || orderId).replace(/^#/, ""))
+      ) {
+        setSelectedOrder(null);
+      }
+      showNotification(`Order ${label} record deleted.`);
     }
   };
 
@@ -707,11 +720,12 @@ export function AdminPage() {
   };
 
   // Delete Reservation
-  const handleDeleteRes = (resId: string) => {
-    if (window.confirm("Permanently delete this reservation record?")) {
-      adminStore.deleteReservation(resId);
+  const handleDeleteRes = (resId: string, reservationNumber?: string) => {
+    const label = reservationNumber ? `#${reservationNumber}` : "this booking";
+    if (window.confirm(`Permanently delete reservation ${label}?`)) {
+      adminStore.deleteReservation(resId, reservationNumber);
       loadData();
-      showNotification("Reservation record deleted.");
+      showNotification(`Reservation ${label} record deleted.`);
     }
   };
 
@@ -2082,8 +2096,9 @@ export function AdminPage() {
                         </a>
 
                         <button
-                          onClick={() => handleDeleteOrder(ord.id)}
+                          onClick={() => handleDeleteOrder(ord.id, ord.orderNumber)}
                           className="py-1.5 px-2 rounded-lg bg-white border border-[#b91c1c]/30 hover:bg-[#fee2e2] text-[#b91c1c] text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+                          title="Delete Order"
                         >
                           <Trash2 className="size-3" />
                           <span>Del</span>
@@ -2254,7 +2269,7 @@ export function AdminPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteRes(res.id)}
+                              onClick={() => handleDeleteRes(res.id, res.reservationNumber)}
                               className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 inline-flex items-center justify-center cursor-pointer transition-colors"
                               title="Delete Record"
                             >
