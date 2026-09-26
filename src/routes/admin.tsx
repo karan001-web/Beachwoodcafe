@@ -673,8 +673,23 @@ export function AdminPage() {
 
   // Order status update
   const handleUpdateOrderStatus = (orderId: string, status: OrderStatus, orderNumber?: string) => {
+    const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
+    const cleanNum = orderNumber ? String(orderNumber).trim().toLowerCase().replace(/^#/, "") : "";
+    const now = Date.now();
+
+    // 1. Update React state immediately so UI transitions directly with zero intermediate stages
+    setOrders((prev) =>
+      prev.map((o) => {
+        const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const oId = (o.id || "").trim().toLowerCase();
+        const isMatch = (cleanNum && oNum === cleanNum) || (cleanId && oId === cleanId);
+        return isMatch ? { ...o, status, statusUpdatedAt: now } : o;
+      })
+    );
+
+    // 2. Persist in admin store and sync to server
     adminStore.updateOrderStatus(orderId, status, orderNumber);
-    loadData();
+
     showNotification(`Order status updated to "${status.toUpperCase()}"`);
     if (
       selectedOrder &&
@@ -682,7 +697,7 @@ export function AdminPage() {
         (orderNumber && selectedOrder.orderNumber === orderNumber) ||
         selectedOrder.orderNumber.replace(/^#/, "") === (orderNumber || orderId).replace(/^#/, ""))
     ) {
-      setSelectedOrder((prev) => (prev ? { ...prev, status } : null));
+      setSelectedOrder((prev) => (prev ? { ...prev, status, statusUpdatedAt: now } : null));
     }
   };
 

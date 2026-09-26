@@ -36,6 +36,7 @@ export interface AdminOrder {
   tipAmount: number;
   grandTotal: number;
   status: OrderStatus;
+  statusUpdatedAt?: number | undefined;
   cancelledBy?: "customer" | "admin" | undefined;
   cancelledAt?: number | undefined;
   cancellationReason?: string | undefined;
@@ -285,15 +286,19 @@ function publishCloudEvent(type: string, payload: any) {
 }
 
 function broadcastEvent(type: string, payload: any) {
+  const wrappedPayload = {
+    ...payload,
+    _senderSessionId: CLIENT_SESSION_ID,
+  };
   if (syncChannel) {
     try {
-      syncChannel.postMessage({ type, payload });
+      syncChannel.postMessage({ type, payload: wrappedPayload });
     } catch (e) {
       console.warn("BroadcastChannel postMessage error:", e);
     }
   }
   // Deliver instantly to other devices across the web
-  publishCloudEvent(type, payload);
+  publishCloudEvent(type, wrappedPayload);
 }
 
 // ============================================================================
@@ -476,10 +481,12 @@ export const adminStore = {
     });
     if (idx === -1 || !orders[idx]) return false;
 
+    const now = Date.now();
     orders[idx]!.status = status;
+    orders[idx]!.statusUpdatedAt = now;
     if (status === "cancelled" && !orders[idx]!.cancelledBy) {
       orders[idx]!.cancelledBy = "admin";
-      orders[idx]!.cancelledAt = Date.now();
+      orders[idx]!.cancelledAt = now;
       orders[idx]!.cancellationReason = "Cancelled manually by Cafe Staff / Admin";
     }
 
@@ -491,6 +498,7 @@ export const adminStore = {
         orderId: orders[idx]!.id,
         action: "status_update",
         status,
+        statusUpdatedAt: now,
         order: orders[idx],
       };
 
@@ -510,6 +518,7 @@ export const adminStore = {
           orderId: orders[idx]!.id,
           orderNumber: orders[idx]!.orderNumber,
           status,
+          statusUpdatedAt: now,
           cancelledBy: orders[idx]!.cancelledBy,
           cancellationReason: orders[idx]!.cancellationReason,
         }),
@@ -1572,22 +1581,31 @@ export const adminStore = {
           }
         } else {
           const current = mergedOrders[existingIdx];
-          if (
-            current &&
-            (remote.status !== current.status ||
+          if (current) {
+            const currentUpdated = current.statusUpdatedAt || current.timestamp || 0;
+            const remoteUpdated = remote.statusUpdatedAt || remote.timestamp || 0;
+            // Prevent stale server response from downgrading a more recently updated local status
+            const isLocalMoreRecent = currentUpdated > remoteUpdated;
+            const targetStatus = isLocalMoreRecent ? current.status : (remote.status || current.status);
+            const targetStatusUpdatedAt = Math.max(currentUpdated, remoteUpdated);
+
+            if (
+              targetStatus !== current.status ||
               remote.cancelledBy !== current.cancelledBy ||
               remote.cancellationReason !== current.cancellationReason ||
-              remote.cancelledAt !== current.cancelledAt)
-          ) {
-            // ONLY update mutable status attributes; never overwrite identity
-            mergedOrders[existingIdx] = {
-              ...current,
-              status: remote.status || current.status,
-              cancelledBy: remote.cancelledBy || current.cancelledBy,
-              cancellationReason: remote.cancellationReason || current.cancellationReason,
-              cancelledAt: remote.cancelledAt || current.cancelledAt,
-            };
-            updatedOrdersCount++;
+              remote.cancelledAt !== current.cancelledAt
+            ) {
+              // ONLY update mutable status attributes; never overwrite identity
+              mergedOrders[existingIdx] = {
+                ...current,
+                status: targetStatus,
+                statusUpdatedAt: targetStatusUpdatedAt,
+                cancelledBy: remote.cancelledBy || current.cancelledBy,
+                cancellationReason: remote.cancellationReason || current.cancellationReason,
+                cancelledAt: remote.cancelledAt || current.cancelledAt,
+              };
+              updatedOrdersCount++;
+            }
           }
         }
       }
@@ -1748,26 +1766,32 @@ export const adminStore = {
       });
 
       if (idx !== -1 && orders[idx]) {
-        if (
-          orders[idx]!.status !== payload.status ||
-          orders[idx]!.cancelledBy !== payload.cancelledBy ||
-          orders[idx]!.cancellationReason !== payload.cancellationReason
-        ) {
-          orders[idx]!.status = payload.status;
-          if (payload.cancelledBy) orders[idx]!.cancelledBy = payload.cancelledBy;
-          if (payload.cancellationReason) orders[idx]!.cancellationReason = payload.cancellationReason;
-          if (payload.cancelledAt) orders[idx]!.cancelledAt = payload.cancelledAt;
+        const currentUpdated = orders[idx]!.statusUpdatedAt || orders[idx]!.timestamp || 0;
+        const incomingUpdated = payload.statusUpdatedAt || payload.timestamp || 0;
 
-          safeSetJSON(STORAGE_KEYS.ORDERS, orders);
-          window.dispatchEvent(
-            new CustomEvent("bwc_order_change", {
-              detail: {
-                ...payload,
-                orderNumber: orders[idx]!.orderNumber,
-                orderId: orders[idx]!.id,
-              },
-            })
-          );
+        if (incomingUpdated >= currentUpdated || !orders[idx]!.statusUpdatedAt) {
+          if (
+            orders[idx]!.status !== payload.status ||
+            orders[idx]!.cancelledBy !== payload.cancelledBy ||
+            orders[idx]!.cancellationReason !== payload.cancellationReason
+          ) {
+            orders[idx]!.status = payload.status;
+            orders[idx]!.statusUpdatedAt = Math.max(currentUpdated, incomingUpdated);
+            if (payload.cancelledBy) orders[idx]!.cancelledBy = payload.cancelledBy;
+            if (payload.cancellationReason) orders[idx]!.cancellationReason = payload.cancellationReason;
+            if (payload.cancelledAt) orders[idx]!.cancelledAt = payload.cancelledAt;
+
+            safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+            window.dispatchEvent(
+              new CustomEvent("bwc_order_change", {
+                detail: {
+                  ...payload,
+                  orderNumber: orders[idx]!.orderNumber,
+                  orderId: orders[idx]!.id,
+                },
+              })
+            );
+          }
         }
       } else if (payload.order && this.isAuthenticated()) {
         // ONLY insert unknown foreign order into local storage if this device is authenticated ADMIN

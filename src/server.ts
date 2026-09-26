@@ -50,6 +50,7 @@ interface StoredOrder {
   orderNumber: string;
   timestamp: number;
   status?: string | undefined;
+  statusUpdatedAt?: number | undefined;
   cancelledBy?: string | undefined;
   cancelledAt?: number | undefined;
   cancellationReason?: string | undefined;
@@ -145,16 +146,15 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
           if (idx !== -1) {
             const existing = serverOrders[idx]!;
-            // Do NOT let an incoming 'pending' status downgrade an already processed order (e.g. kitchen, ready, completed)
-            const shouldPreserveExistingStatus =
-              existing.status &&
-              existing.status !== "pending" &&
-              ord.status === "pending";
+            const existingUpdated = existing.statusUpdatedAt || existing.timestamp || 0;
+            const incomingUpdated = ord.statusUpdatedAt || ord.timestamp || 0;
+            const isExistingNewer = existingUpdated > incomingUpdated;
 
             serverOrders[idx] = {
               ...existing,
               ...ord,
-              status: shouldPreserveExistingStatus ? existing.status : (ord.status || existing.status),
+              status: isExistingNewer ? existing.status : (ord.status || existing.status),
+              statusUpdatedAt: Math.max(existingUpdated, incomingUpdated),
               cancelledBy: ord.cancelledBy || existing.cancelledBy,
               cancelledAt: ord.cancelledAt || existing.cancelledAt,
               cancellationReason: ord.cancellationReason || existing.cancellationReason,
@@ -188,7 +188,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   if (path === "/api/orders/update-status") {
     if (request.method === "POST") {
       try {
-        const { orderId, orderNumber, status, cancelledBy, cancellationReason } = await request.json();
+        const { orderId, orderNumber, status, statusUpdatedAt, cancelledBy, cancellationReason } = await request.json();
         const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
         const cleanNum = String(orderNumber || "").trim().toLowerCase().replace(/^#/, "");
 
@@ -207,6 +207,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
         if (idx !== -1 && serverOrders[idx]) {
           const ord = serverOrders[idx]!;
           ord["status"] = status;
+          ord["statusUpdatedAt"] = statusUpdatedAt || Date.now();
           if (status === "cancelled") {
             ord["cancelledBy"] = cancelledBy || "admin";
             ord["cancelledAt"] = Date.now();
