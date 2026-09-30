@@ -355,6 +355,13 @@ export function SiteFooter() {
               <span className="hidden sm:inline">·</span>
               <p>© 2026 Beachwood Cafe. All rights reserved.</p>
               <span className="hidden sm:inline">·</span>
+              <Link
+                to="/track"
+                className="hover:text-[#d99214] text-[#ede4d5] font-semibold transition-colors cursor-pointer"
+              >
+                Track Order
+              </Link>
+              <span className="hidden sm:inline">·</span>
               <a
                 href="/#faq"
                 className="hover:text-[#d99214] text-[#ede4d5] font-semibold transition-colors cursor-pointer"

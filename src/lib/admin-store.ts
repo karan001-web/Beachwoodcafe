@@ -1793,21 +1793,25 @@ export const adminStore = {
             fetchReservationsFromSupabase(),
           ]);
           for (const so of sbOrders) {
-            const exists = remoteOrders.some(
-              (ro) =>
-                ro.orderNumber.replace(/^#/, "").toLowerCase() ===
-                  so.orderNumber.replace(/^#/, "").toLowerCase() || ro.id === so.id
-            );
+            if (!so) continue;
+            const soNum = String(so.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+            const exists = remoteOrders.some((ro) => {
+              if (!ro) return false;
+              const roNum = String(ro.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+              return (roNum && soNum && roNum === soNum) || (ro.id && so.id && ro.id === so.id);
+            });
             if (!exists) {
               remoteOrders.push(so);
             }
           }
           for (const sr of sbReservations) {
-            const exists = remoteReservations.some(
-              (rr) =>
-                rr.reservationNumber.replace(/^#/, "").toLowerCase() ===
-                  sr.reservationNumber.replace(/^#/, "").toLowerCase() || rr.id === sr.id
-            );
+            if (!sr) continue;
+            const srNum = String(sr.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+            const exists = remoteReservations.some((rr) => {
+              if (!rr) return false;
+              const rrNum = String(rr.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+              return (rrNum && srNum && rrNum === srNum) || (rr.id && sr.id && rr.id === sr.id);
+            });
             if (!exists) {
               remoteReservations.push(sr);
             }
@@ -2291,16 +2295,18 @@ export function initSupabaseSync() {
   try {
     subscribeToSupabaseRealtime({
       onOrderInserted: (order) => {
+        if (!order) return;
+        const newNum = String(order.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
         const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-        const exists = orders.some(
-          (o) =>
-            o.orderNumber.replace(/^#/, "").toLowerCase() ===
-              order.orderNumber.replace(/^#/, "").toLowerCase() || o.id === order.id
-        );
+        const exists = orders.some((o) => {
+          if (!o) return false;
+          const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+          return (oNum && newNum && oNum === newNum) || (o.id && order.id && o.id === order.id);
+        });
         if (!exists) {
           orders.unshift(order);
           safeSetJSON(STORAGE_KEYS.ORDERS, orders);
-          adminStore.addUnviewedOrder(order.orderNumber);
+          if (order.orderNumber) adminStore.addUnviewedOrder(order.orderNumber);
           window.dispatchEvent(
             new CustomEvent("bwc_order_change", {
               detail: { orderNumber: order.orderNumber, action: "add", order },
@@ -2309,12 +2315,14 @@ export function initSupabaseSync() {
         }
       },
       onOrderUpdated: (order) => {
+        if (!order) return;
+        const targetNum = String(order.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
         const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-        const idx = orders.findIndex(
-          (o) =>
-            o.orderNumber.replace(/^#/, "").toLowerCase() ===
-              order.orderNumber.replace(/^#/, "").toLowerCase() || o.id === order.id
-        );
+        const idx = orders.findIndex((o) => {
+          if (!o) return false;
+          const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+          return (oNum && targetNum && oNum === targetNum) || (o.id && order.id && o.id === order.id);
+        });
         if (idx !== -1) {
           orders[idx] = { ...orders[idx], ...order };
           safeSetJSON(STORAGE_KEYS.ORDERS, orders);
@@ -2331,12 +2339,13 @@ export function initSupabaseSync() {
         }
       },
       onOrderDeleted: (id, orderNumber) => {
-        const cleanId = (id || "").toLowerCase();
-        const cleanNum = (orderNumber || "").replace(/^#/, "").toLowerCase();
+        const cleanId = String(id || "").toLowerCase();
+        const cleanNum = String(orderNumber || "").replace(/^#/, "").toLowerCase();
         const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
         const filtered = orders.filter((o) => {
-          const oId = (o.id || "").toLowerCase();
-          const oNum = (o.orderNumber || "").replace(/^#/, "").toLowerCase();
+          if (!o) return false;
+          const oId = String(o.id || "").toLowerCase();
+          const oNum = String(o.orderNumber || "").replace(/^#/, "").toLowerCase();
           if (cleanNum && oNum === cleanNum) return false;
           if (cleanId && oId === cleanId) return false;
           return true;
@@ -2349,16 +2358,18 @@ export function initSupabaseSync() {
         );
       },
       onReservationInserted: (res) => {
+        if (!res) return;
+        const newNum = String(res.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
         const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
-        const exists = reservations.some(
-          (r) =>
-            r.reservationNumber.replace(/^#/, "").toLowerCase() ===
-              res.reservationNumber.replace(/^#/, "").toLowerCase() || r.id === res.id
-        );
+        const exists = reservations.some((r) => {
+          if (!r) return false;
+          const rNum = String(r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+          return (rNum && newNum && rNum === newNum) || (r.id && res.id && r.id === res.id);
+        });
         if (!exists) {
           reservations.unshift(res);
           safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
-          adminStore.addUnviewedReservation(res.reservationNumber);
+          if (res.reservationNumber) adminStore.addUnviewedReservation(res.reservationNumber);
           window.dispatchEvent(
             new CustomEvent("bwc_reservation_change", {
               detail: { reservationNumber: res.reservationNumber, action: "add", reservation: res },
@@ -2367,12 +2378,14 @@ export function initSupabaseSync() {
         }
       },
       onReservationUpdated: (res) => {
+        if (!res) return;
+        const targetNum = String(res.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
         const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
-        const idx = reservations.findIndex(
-          (r) =>
-            r.reservationNumber.replace(/^#/, "").toLowerCase() ===
-              res.reservationNumber.replace(/^#/, "").toLowerCase() || r.id === res.id
-        );
+        const idx = reservations.findIndex((r) => {
+          if (!r) return false;
+          const rNum = String(r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+          return (rNum && targetNum && rNum === targetNum) || (r.id && res.id && r.id === res.id);
+        });
         if (idx !== -1) {
           reservations[idx] = { ...reservations[idx], ...res };
           safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
@@ -2389,12 +2402,13 @@ export function initSupabaseSync() {
         }
       },
       onReservationDeleted: (id, reservationNumber) => {
-        const cleanId = (id || "").toLowerCase();
-        const cleanNum = (reservationNumber || "").replace(/^#/, "").toLowerCase();
+        const cleanId = String(id || "").toLowerCase();
+        const cleanNum = String(reservationNumber || "").replace(/^#/, "").toLowerCase();
         const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
         const filtered = reservations.filter((r) => {
-          const rId = (r.id || "").toLowerCase();
-          const rNum = (r.reservationNumber || "").replace(/^#/, "").toLowerCase();
+          if (!r) return false;
+          const rId = String(r.id || "").toLowerCase();
+          const rNum = String(r.reservationNumber || "").replace(/^#/, "").toLowerCase();
           if (cleanNum && rNum === cleanNum) return false;
           if (cleanId && rId === cleanId) return false;
           return true;

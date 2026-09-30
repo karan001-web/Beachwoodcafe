@@ -31,6 +31,11 @@ export interface PrintableReceiptOrder {
   grandTotal: number;
 }
 
+const formatMoney = (val: unknown): string => {
+  const num = typeof val === "number" ? val : parseFloat(String(val || 0));
+  return (isNaN(num) ? 0 : num).toFixed(2);
+};
+
 /**
  * Builds a clean, compact, professional HTML receipt guaranteed to fit on a single page.
  */
@@ -45,16 +50,17 @@ function buildReceiptHtml(order: PrintableReceiptOrder): string {
     ? `${order.deliveryAddress || ""}${order.deliveryApt ? ` Apt ${order.deliveryApt}` : ""}, ${order.deliveryCity || "Los Angeles"} ${order.deliveryZip || "90068"}`.trim()
     : site.address;
 
-  const itemsHtml = order.items
+  const itemsList = Array.isArray(order.items) ? order.items : [];
+  const itemsHtml = itemsList
     .map(
       (item) => `
       <tr>
-        <td style="padding: 4px 0; font-weight: 700; width: 35px; vertical-align: top;">${item.quantity}x</td>
+        <td style="padding: 4px 0; font-weight: 700; width: 35px; vertical-align: top;">${item.quantity || 1}x</td>
         <td style="padding: 4px 0; vertical-align: top;">
-          <div style="font-weight: 600; color: #111;">${item.name}</div>
-          ${item.unitPrice ? `<div style="font-size: 10px; color: #666;">$${item.unitPrice.toFixed(2)} each</div>` : ""}
+          <div style="font-weight: 600; color: #111;">${item.name || "Item"}</div>
+          ${item.unitPrice ? `<div style="font-size: 10px; color: #666;">$${formatMoney(item.unitPrice)} each</div>` : ""}
         </td>
-        <td style="padding: 4px 0; text-align: right; font-weight: 700; vertical-align: top; width: 65px;">$${item.total.toFixed(2)}</td>
+        <td style="padding: 4px 0; text-align: right; font-weight: 700; vertical-align: top; width: 65px;">$${formatMoney(item.total ?? (Number(item.unitPrice || 0) * Number(item.quantity || 1)))}</td>
       </tr>
     `
     )
@@ -336,33 +342,33 @@ function buildReceiptHtml(order: PrintableReceiptOrder): string {
     <div>
       <div class="totals-row">
         <span>Subtotal</span>
-        <span>$${order.subtotal.toFixed(2)}</span>
+        <span>$${formatMoney(order.subtotal)}</span>
       </div>
-      ${order.discountAmount && order.discountAmount > 0 ? `
+      ${order.discountAmount && Number(order.discountAmount) > 0 ? `
       <div class="totals-row" style="color: #16a34a; font-weight: 600;">
         <span>Promo Discount</span>
-        <span>-$${order.discountAmount.toFixed(2)}</span>
+        <span>-$${formatMoney(order.discountAmount)}</span>
       </div>
       ` : ""}
       <div class="totals-row">
         <span>Sales Tax (9.5% LA)</span>
-        <span>$${order.tax.toFixed(2)}</span>
+        <span>$${formatMoney(order.tax)}</span>
       </div>
-      ${order.deliveryFee && order.deliveryFee > 0 ? `
+      ${order.deliveryFee && Number(order.deliveryFee) > 0 ? `
       <div class="totals-row">
         <span>Delivery Fee</span>
-        <span>$${order.deliveryFee.toFixed(2)}</span>
+        <span>$${formatMoney(order.deliveryFee)}</span>
       </div>
       ` : ""}
-      ${order.tipAmount && order.tipAmount > 0 ? `
+      ${order.tipAmount && Number(order.tipAmount) > 0 ? `
       <div class="totals-row">
         <span>Staff Tip</span>
-        <span>$${order.tipAmount.toFixed(2)}</span>
+        <span>$${formatMoney(order.tipAmount)}</span>
       </div>
       ` : ""}
       <div class="grand-total-row">
         <span>GRAND TOTAL</span>
-        <span>$${order.grandTotal.toFixed(2)}</span>
+        <span>$${formatMoney(order.grandTotal)}</span>
       </div>
       <div class="totals-row" style="font-size: 10px; color: #666;">
         <span>Payment Method</span>
