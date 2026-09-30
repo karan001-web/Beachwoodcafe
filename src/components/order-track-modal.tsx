@@ -45,7 +45,7 @@ export function OrderTrackModal({
 
   const [recentOrders, setRecentOrders] = useState<AdminOrder[]>([]);
   const [searchError, setSearchError] = useState("");
-  const [now, setNow] = useState(Date.now());
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelFeedback, setCancelFeedback] = useState<{
     success: boolean;
@@ -131,7 +131,7 @@ export function OrderTrackModal({
       refreshData();
     }).catch(() => {});
 
-    // Live poller every 1s as reliable backup to instant SSE cloud events
+    // Background sync poller every 10s (relying primarily on instant local & storage events)
     const pollInterval = setInterval(async () => {
       try {
         await adminStore.syncWithServer();
@@ -151,7 +151,7 @@ export function OrderTrackModal({
       } catch {
         // silent catch
       }
-    }, 1000);
+    }, 10000);
 
     const handleOrderChange = (e?: any) => {
       const changedOrderNum = e?.detail?.orderNumber;
@@ -212,6 +212,47 @@ export function OrderTrackModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
+
+  // Real-time 1-second customer order cancellation countdown
+  useEffect(() => {
+    if (!isOpen || !selectedOrder) {
+      setRemainingSeconds(0);
+      return;
+    }
+
+    const orderCreatedAt =
+      typeof selectedOrder.timestamp === "number"
+        ? selectedOrder.timestamp
+        : Number(selectedOrder.timestamp) || 0;
+
+    if (!orderCreatedAt) {
+      setRemainingSeconds(0);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const GRACE_PERIOD_MS = 60 * 1000;
+      const elapsed = Date.now() - orderCreatedAt;
+      const remainingMs = Math.max(0, GRACE_PERIOD_MS - elapsed);
+      const secondsLeft = Math.min(60, Math.ceil(remainingMs / 1000));
+
+      setRemainingSeconds(secondsLeft);
+
+      if (remainingMs <= 0 && timerId) {
+        clearInterval(timerId);
+      }
+    };
+
+    // 1. Immediately calculate on modal open / order change
+    updateCountdown();
+
+    // 2. Continuous 1-second countdown interval
+    const timerId = setInterval(updateCountdown, 1000);
+
+    return () => {
+      clearInterval(timerId);
+    };
+  }, [isOpen, selectedOrder?.id, selectedOrder?.orderNumber, selectedOrder?.timestamp]);
 
   if (!isOpen) return null;
 
@@ -325,15 +366,12 @@ export function OrderTrackModal({
     }, 350);
   };
 
-  // 1-minute window calculation (60 seconds)
-  const orderAgeMs = selectedOrder ? Math.max(0, now - selectedOrder.timestamp) : 0;
-  const ONE_MIN_MS = 60 * 1000;
-  const remainingSeconds = Math.max(0, Math.ceil((ONE_MIN_MS - orderAgeMs) / 1000));
+  // 1-minute grace cancellation eligibility
   const canCancel =
+    remainingSeconds > 0 &&
     selectedOrder &&
     selectedOrder.status !== "cancelled" &&
-    selectedOrder.status !== "completed" &&
-    remainingSeconds > 0;
+    selectedOrder.status !== "completed";
 
   // Stepper progress definition
   const steps = [
@@ -907,3 +945,4 @@ export function OrderTrackModal({
     </div>
   );
 }
+

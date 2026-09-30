@@ -1,6 +1,19 @@
 // Centralized Data Store for Beachwood Cafe Admin Panel
 // Handles Orders, Table Reservations, Website Visitors Analytics, and WhatsApp Click Tracking.
 
+import {
+  isSupabaseConfigured,
+  fetchOrdersFromSupabase,
+  upsertOrderToSupabase,
+  updateOrderStatusInSupabase,
+  deleteOrderFromSupabase,
+  fetchReservationsFromSupabase,
+  upsertReservationToSupabase,
+  updateReservationStatusInSupabase,
+  deleteReservationFromSupabase,
+  subscribeToSupabaseRealtime,
+} from "./supabase";
+
 export interface OrderItem {
   name: string;
   quantity: number;
@@ -114,6 +127,8 @@ const STORAGE_KEYS = {
   DELETED_ORDER_IDS: "bwc_admin_deleted_orders_v1",
   DELETED_RES_IDS: "bwc_admin_deleted_reservations_v1",
   DATA_CLEARED_AT: "bwc_admin_data_cleared_at_v1",
+  UNVIEWED_ORDER_IDS: "bwc_unviewed_order_ids_v1",
+  UNVIEWED_BOOKING_IDS: "bwc_unviewed_booking_ids_v1",
 };
 
 const DEFAULT_MAINTENANCE: MaintenanceConfig = {
@@ -262,6 +277,8 @@ if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
         window.dispatchEvent(new CustomEvent("bwc_reservation_change", { detail: payload }));
       } else if (type === "notification_added") {
         window.dispatchEvent(new CustomEvent("bwc_notification_added", { detail: payload }));
+      } else if (type === "unviewed_change") {
+        window.dispatchEvent(new CustomEvent("bwc_unviewed_change", { detail: payload }));
       }
     };
   } catch (e) {
@@ -415,6 +432,7 @@ export const adminStore = {
     };
     orders.unshift(newOrder);
     safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+    this.addUnviewedOrder(newOrder.orderNumber);
 
     // Save to customer's local session history for easy tracking
     if (typeof window !== "undefined") {
@@ -460,6 +478,12 @@ export const adminStore = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order: newOrder }),
       }).catch((err) => console.warn("Background order sync to server:", err));
+
+      if (isSupabaseConfigured()) {
+        upsertOrderToSupabase(newOrder).catch((err) =>
+          console.warn("Background Supabase order save:", err)
+        );
+      }
     }
 
     return newOrder;
@@ -523,9 +547,32 @@ export const adminStore = {
           cancellationReason: orders[idx]!.cancellationReason,
         }),
       }).catch((err) => console.warn("Background status sync to server:", err));
+
+      if (isSupabaseConfigured()) {
+        updateOrderStatusInSupabase(orders[idx]!.orderNumber, status, {
+          statusUpdatedAt: now,
+          cancelledBy: orders[idx]!.cancelledBy,
+          cancellationReason: orders[idx]!.cancellationReason,
+        }).catch((err) => console.warn("Background Supabase status sync:", err));
+      }
     }
 
     return true;
+  },
+
+  // Helper to compute remaining grace period seconds (60-second window from original placement timestamp)
+  getOrderGraceSecondsRemaining(order: AdminOrder | null | undefined): number {
+    if (!order) return 0;
+    const ts = typeof order.timestamp === "number" ? order.timestamp : Number(order.timestamp) || 0;
+    if (!ts) return 0;
+    const elapsedMs = Math.max(0, Date.now() - ts);
+    const GRACE_PERIOD_MS = 60 * 1000;
+    const remainingMs = Math.max(0, GRACE_PERIOD_MS - elapsedMs);
+    return Math.min(60, Math.ceil(remainingMs / 1000));
+  },
+
+  isOrderWithinGraceWindow(order: AdminOrder | null | undefined): boolean {
+    return this.getOrderGraceSecondsRemaining(order) > 0;
   },
 
   // Customer cancellation strictly within 1 minute (60 seconds)
@@ -560,12 +607,10 @@ export const adminStore = {
       };
     }
 
-    // 1-minute window check (60,000 milliseconds)
-    const elapsedMs = Date.now() - order.timestamp;
-    const ONE_MINUTE_MS = 60 * 1000;
-
-    if (elapsedMs > ONE_MINUTE_MS) {
-      const elapsedSec = Math.floor(elapsedMs / 1000);
+    // 1-minute window check (60 seconds from order.timestamp)
+    const remainingSec = this.getOrderGraceSecondsRemaining(order);
+    if (remainingSec <= 0) {
+      const elapsedSec = Math.floor(Math.max(0, Date.now() - (order.timestamp || 0)) / 1000);
       return {
         success: false,
         message: `Cancellation window closed! More than 1 minute has passed (${elapsedSec}s). Your order has already been sent to the kitchen line. Please call the cafe for emergency changes.`,
@@ -579,6 +624,8 @@ export const adminStore = {
     order.cancelledAt = Date.now();
     order.cancellationReason =
       reason || "Cancelled directly by customer within 1-minute grace period";
+
+    const elapsedMs = Math.max(0, Date.now() - (order.timestamp || 0));
 
     safeSetJSON(STORAGE_KEYS.ORDERS, orders);
 
@@ -620,6 +667,15 @@ export const adminStore = {
           cancellationReason: order.cancellationReason,
         }),
       }).catch((err) => console.warn("Background cancel sync to server:", err));
+
+      if (isSupabaseConfigured()) {
+        updateOrderStatusInSupabase(order.orderNumber, "cancelled", {
+          statusUpdatedAt: Date.now(),
+          cancelledBy: "customer",
+          cancelledAt: order.cancelledAt,
+          cancellationReason: order.cancellationReason,
+        }).catch((err) => console.warn("Background Supabase cancel sync:", err));
+      }
     }
 
     return {
@@ -683,6 +739,15 @@ export const adminStore = {
           cancellationReason: order.cancellationReason,
         }),
       }).catch((err) => console.warn("Background admin cancel sync to server:", err));
+
+      if (isSupabaseConfigured()) {
+        updateOrderStatusInSupabase(order.orderNumber, "cancelled", {
+          statusUpdatedAt: Date.now(),
+          cancelledBy: "admin",
+          cancelledAt: order.cancelledAt,
+          cancellationReason: order.cancellationReason,
+        }).catch((err) => console.warn("Background Supabase admin cancel sync:", err));
+      }
     }
 
     return { success: true, order };
@@ -773,6 +838,10 @@ export const adminStore = {
     });
     safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
 
+    // Clean up unviewed state if deleted
+    if (cleanNum) this.markOrderViewed(cleanNum);
+    if (cleanId) this.markOrderViewed(cleanId);
+
     // 2. Add to tombstone registry so sync never resurrects it
     const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
     if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
@@ -799,6 +868,12 @@ export const adminStore = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId, orderNumber }),
     }).catch(() => {});
+
+    if (isSupabaseConfigured()) {
+      deleteOrderFromSupabase(cleanNum || cleanId).catch((err) =>
+        console.warn("Background Supabase order delete:", err)
+      );
+    }
 
     // 5. Broadcast to other tabs & devices
     broadcastEvent("order_delete", { orderId, orderNumber, action: "delete" });
@@ -836,6 +911,7 @@ export const adminStore = {
     };
     reservations.unshift(newRes);
     safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+    this.addUnviewedReservation(newRes.reservationNumber);
 
     if (typeof window !== "undefined") {
       this.addNotification({
@@ -867,6 +943,12 @@ export const adminStore = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reservation: newRes }),
       }).catch((err) => console.warn("Background reservation sync to server:", err));
+
+      if (isSupabaseConfigured()) {
+        upsertReservationToSupabase(newRes).catch((err) =>
+          console.warn("Background Supabase reservation save:", err)
+        );
+      }
     }
 
     return newRes;
@@ -912,6 +994,12 @@ export const adminStore = {
           status,
         }),
       }).catch((err) => console.warn("Background status sync to server:", err));
+
+      if (isSupabaseConfigured()) {
+        updateReservationStatusInSupabase(reservations[idx]!.reservationNumber, status).catch(
+          (err) => console.warn("Background Supabase reservation status sync:", err)
+        );
+      }
     }
 
     return true;
@@ -931,6 +1019,10 @@ export const adminStore = {
     });
     safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
 
+    // Clean up unviewed state if deleted
+    if (cleanNum) this.markReservationViewed(cleanNum);
+    if (cleanId) this.markReservationViewed(cleanId);
+
     // 2. Add to tombstone registry so sync never resurrects it
     const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
     if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
@@ -943,6 +1035,12 @@ export const adminStore = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resId, reservationNumber }),
     }).catch(() => {});
+
+    if (isSupabaseConfigured()) {
+      deleteReservationFromSupabase(cleanNum || cleanId).catch((err) =>
+        console.warn("Background Supabase reservation delete:", err)
+      );
+    }
 
     // 4. Broadcast
     broadcastEvent("reservation_delete", { resId, reservationNumber, action: "delete" });
@@ -1415,6 +1513,8 @@ export const adminStore = {
     safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
     safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, []);
     safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, []);
+    safeSetJSON(STORAGE_KEYS.UNVIEWED_ORDER_IDS, []);
+    safeSetJSON(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, []);
     if (typeof window !== "undefined") {
       localStorage.setItem(STORAGE_KEYS.VISITOR_COUNT, "0");
       localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
@@ -1499,6 +1599,165 @@ export const adminStore = {
   },
 
   // --------------------------------------------------------------------------
+  // 7B. UNVIEWED / NEW STATUS TRACKING (FEATURE 2 & FEATURE 4)
+  // --------------------------------------------------------------------------
+  getUnviewedOrderIds(): string[] {
+    const raw = safeGetJSON<string[]>(STORAGE_KEYS.UNVIEWED_ORDER_IDS, []);
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const validKeys = new Set<string>();
+    for (const o of orders) {
+      if (o.orderNumber) validKeys.add(o.orderNumber.replace(/^#/, "").trim().toLowerCase());
+      if (o.id) validKeys.add(o.id.trim().toLowerCase());
+    }
+    const filtered = raw.filter((id) => {
+      const clean = String(id).replace(/^#/, "").trim().toLowerCase();
+      return validKeys.has(clean);
+    });
+    if (filtered.length !== raw.length) {
+      safeSetJSON(STORAGE_KEYS.UNVIEWED_ORDER_IDS, filtered);
+    }
+    return filtered;
+  },
+
+  addUnviewedOrder(orderIdOrNumber: string): void {
+    if (!orderIdOrNumber) return;
+    const clean = String(orderIdOrNumber).replace(/^#/, "").trim();
+    if (!clean) return;
+    const current = this.getUnviewedOrderIds();
+    const exists = current.some((c) => c.toLowerCase() === clean.toLowerCase());
+    if (!exists) {
+      current.push(clean);
+      safeSetJSON(STORAGE_KEYS.UNVIEWED_ORDER_IDS, current);
+      broadcastEvent("unviewed_change", { type: "order", id: clean, action: "add" });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("bwc_unviewed_change", {
+            detail: { type: "order", id: clean, action: "add" },
+          })
+        );
+      }
+    }
+  },
+
+  markOrderViewed(orderIdOrNumber: string): void {
+    if (!orderIdOrNumber) return;
+    const clean = String(orderIdOrNumber).replace(/^#/, "").trim().toLowerCase();
+    const current = safeGetJSON<string[]>(STORAGE_KEYS.UNVIEWED_ORDER_IDS, []);
+    const updated = current.filter((id) => {
+      const c = String(id).replace(/^#/, "").trim().toLowerCase();
+      return c !== clean;
+    });
+    if (updated.length !== current.length) {
+      safeSetJSON(STORAGE_KEYS.UNVIEWED_ORDER_IDS, updated);
+      broadcastEvent("unviewed_change", { type: "order", id: clean, action: "remove" });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("bwc_unviewed_change", {
+            detail: { type: "order", id: clean, action: "remove" },
+          })
+        );
+      }
+    }
+  },
+
+  markAllOrdersViewed(): void {
+    safeSetJSON(STORAGE_KEYS.UNVIEWED_ORDER_IDS, []);
+    broadcastEvent("unviewed_change", { type: "order", action: "clear_all" });
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bwc_unviewed_change", {
+          detail: { type: "order", action: "clear_all" },
+        })
+      );
+    }
+  },
+
+  isOrderUnviewed(orderIdOrNumber: string): boolean {
+    if (!orderIdOrNumber) return false;
+    const clean = String(orderIdOrNumber).replace(/^#/, "").trim().toLowerCase();
+    const current = this.getUnviewedOrderIds();
+    return current.some((id) => String(id).replace(/^#/, "").trim().toLowerCase() === clean);
+  },
+
+  getUnviewedReservationIds(): string[] {
+    const raw = safeGetJSON<string[]>(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, []);
+    const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    const validKeys = new Set<string>();
+    for (const r of reservations) {
+      if (r.reservationNumber) validKeys.add(r.reservationNumber.replace(/^#/, "").trim().toLowerCase());
+      if (r.id) validKeys.add(r.id.trim().toLowerCase());
+    }
+    const filtered = raw.filter((id) => {
+      const clean = String(id).replace(/^#/, "").trim().toLowerCase();
+      return validKeys.has(clean);
+    });
+    if (filtered.length !== raw.length) {
+      safeSetJSON(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, filtered);
+    }
+    return filtered;
+  },
+
+  addUnviewedReservation(resIdOrNumber: string): void {
+    if (!resIdOrNumber) return;
+    const clean = String(resIdOrNumber).replace(/^#/, "").trim();
+    if (!clean) return;
+    const current = this.getUnviewedReservationIds();
+    const exists = current.some((c) => c.toLowerCase() === clean.toLowerCase());
+    if (!exists) {
+      current.push(clean);
+      safeSetJSON(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, current);
+      broadcastEvent("unviewed_change", { type: "reservation", id: clean, action: "add" });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("bwc_unviewed_change", {
+            detail: { type: "reservation", id: clean, action: "add" },
+          })
+        );
+      }
+    }
+  },
+
+  markReservationViewed(resIdOrNumber: string): void {
+    if (!resIdOrNumber) return;
+    const clean = String(resIdOrNumber).replace(/^#/, "").trim().toLowerCase();
+    const current = safeGetJSON<string[]>(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, []);
+    const updated = current.filter((id) => {
+      const c = String(id).replace(/^#/, "").trim().toLowerCase();
+      return c !== clean;
+    });
+    if (updated.length !== current.length) {
+      safeSetJSON(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, updated);
+      broadcastEvent("unviewed_change", { type: "reservation", id: clean, action: "remove" });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("bwc_unviewed_change", {
+            detail: { type: "reservation", id: clean, action: "remove" },
+          })
+        );
+      }
+    }
+  },
+
+  markAllReservationsViewed(): void {
+    safeSetJSON(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, []);
+    broadcastEvent("unviewed_change", { type: "reservation", action: "clear_all" });
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bwc_unviewed_change", {
+          detail: { type: "reservation", action: "clear_all" },
+        })
+      );
+    }
+  },
+
+  isReservationUnviewed(resIdOrNumber: string): boolean {
+    if (!resIdOrNumber) return false;
+    const clean = String(resIdOrNumber).replace(/^#/, "").trim().toLowerCase();
+    const current = this.getUnviewedReservationIds();
+    return current.some((id) => String(id).replace(/^#/, "").trim().toLowerCase() === clean);
+  },
+
+  // --------------------------------------------------------------------------
   // 8. SERVER SYNCHRONIZATION (CROSS-DEVICE & MOBILE VIEW SYNC)
   // --------------------------------------------------------------------------
   async syncWithServer(): Promise<{
@@ -1525,6 +1784,38 @@ export const adminStore = {
       const remoteReservations: AdminReservation[] = Array.isArray(data.reservations)
         ? data.reservations
         : [];
+
+      // Merge from Supabase if configured
+      if (isSupabaseConfigured()) {
+        try {
+          const [sbOrders, sbReservations] = await Promise.all([
+            fetchOrdersFromSupabase(),
+            fetchReservationsFromSupabase(),
+          ]);
+          for (const so of sbOrders) {
+            const exists = remoteOrders.some(
+              (ro) =>
+                ro.orderNumber.replace(/^#/, "").toLowerCase() ===
+                  so.orderNumber.replace(/^#/, "").toLowerCase() || ro.id === so.id
+            );
+            if (!exists) {
+              remoteOrders.push(so);
+            }
+          }
+          for (const sr of sbReservations) {
+            const exists = remoteReservations.some(
+              (rr) =>
+                rr.reservationNumber.replace(/^#/, "").toLowerCase() ===
+                  sr.reservationNumber.replace(/^#/, "").toLowerCase() || rr.id === sr.id
+            );
+            if (!exists) {
+              remoteReservations.push(sr);
+            }
+          }
+        } catch (e) {
+          console.warn("Supabase fetch during syncWithServer:", e);
+        }
+      }
 
       const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
       const deletedResIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
@@ -1568,6 +1859,7 @@ export const adminStore = {
           if (isUserAdmin) {
             mergedOrders.unshift(remote);
             newOrdersCount++;
+            this.addUnviewedOrder(remote.orderNumber || remote.id);
           } else {
             const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
             const isMine = customerOrderIds.some((id) => {
@@ -1637,6 +1929,7 @@ export const adminStore = {
           if (isUserAdmin) {
             mergedReservations.unshift(remote);
             newReservationsCount++;
+            this.addUnviewedReservation(remote.reservationNumber || remote.id);
           }
         } else {
           const current = mergedReservations[existingIdx];
@@ -1987,9 +2280,142 @@ if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
   connectCloudSSE();
 }
 
-// Auto-trigger background server sync on initial client load
+// Supabase Realtime Listener Setup
+let supabaseRealtimeSubscribed = false;
+
+export function initSupabaseSync() {
+  if (typeof window === "undefined" || supabaseRealtimeSubscribed) return;
+  if (!isSupabaseConfigured()) return;
+  supabaseRealtimeSubscribed = true;
+
+  try {
+    subscribeToSupabaseRealtime({
+      onOrderInserted: (order) => {
+        const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+        const exists = orders.some(
+          (o) =>
+            o.orderNumber.replace(/^#/, "").toLowerCase() ===
+              order.orderNumber.replace(/^#/, "").toLowerCase() || o.id === order.id
+        );
+        if (!exists) {
+          orders.unshift(order);
+          safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+          adminStore.addUnviewedOrder(order.orderNumber);
+          window.dispatchEvent(
+            new CustomEvent("bwc_order_change", {
+              detail: { orderNumber: order.orderNumber, action: "add", order },
+            })
+          );
+        }
+      },
+      onOrderUpdated: (order) => {
+        const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+        const idx = orders.findIndex(
+          (o) =>
+            o.orderNumber.replace(/^#/, "").toLowerCase() ===
+              order.orderNumber.replace(/^#/, "").toLowerCase() || o.id === order.id
+        );
+        if (idx !== -1) {
+          orders[idx] = { ...orders[idx], ...order };
+          safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+          window.dispatchEvent(
+            new CustomEvent("bwc_order_change", {
+              detail: {
+                orderNumber: order.orderNumber,
+                action: order.status === "cancelled" ? "cancel" : "status_update",
+                status: order.status,
+                order,
+              },
+            })
+          );
+        }
+      },
+      onOrderDeleted: (id, orderNumber) => {
+        const cleanId = (id || "").toLowerCase();
+        const cleanNum = (orderNumber || "").replace(/^#/, "").toLowerCase();
+        const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+        const filtered = orders.filter((o) => {
+          const oId = (o.id || "").toLowerCase();
+          const oNum = (o.orderNumber || "").replace(/^#/, "").toLowerCase();
+          if (cleanNum && oNum === cleanNum) return false;
+          if (cleanId && oId === cleanId) return false;
+          return true;
+        });
+        safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
+        window.dispatchEvent(
+          new CustomEvent("bwc_order_change", {
+            detail: { orderId: id, orderNumber, action: "delete" },
+          })
+        );
+      },
+      onReservationInserted: (res) => {
+        const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+        const exists = reservations.some(
+          (r) =>
+            r.reservationNumber.replace(/^#/, "").toLowerCase() ===
+              res.reservationNumber.replace(/^#/, "").toLowerCase() || r.id === res.id
+        );
+        if (!exists) {
+          reservations.unshift(res);
+          safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+          adminStore.addUnviewedReservation(res.reservationNumber);
+          window.dispatchEvent(
+            new CustomEvent("bwc_reservation_change", {
+              detail: { reservationNumber: res.reservationNumber, action: "add", reservation: res },
+            })
+          );
+        }
+      },
+      onReservationUpdated: (res) => {
+        const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+        const idx = reservations.findIndex(
+          (r) =>
+            r.reservationNumber.replace(/^#/, "").toLowerCase() ===
+              res.reservationNumber.replace(/^#/, "").toLowerCase() || r.id === res.id
+        );
+        if (idx !== -1) {
+          reservations[idx] = { ...reservations[idx], ...res };
+          safeSetJSON(STORAGE_KEYS.RESERVATIONS, reservations);
+          window.dispatchEvent(
+            new CustomEvent("bwc_reservation_change", {
+              detail: {
+                reservationNumber: res.reservationNumber,
+                action: "status_update",
+                status: res.status,
+                reservation: res,
+              },
+            })
+          );
+        }
+      },
+      onReservationDeleted: (id, reservationNumber) => {
+        const cleanId = (id || "").toLowerCase();
+        const cleanNum = (reservationNumber || "").replace(/^#/, "").toLowerCase();
+        const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+        const filtered = reservations.filter((r) => {
+          const rId = (r.id || "").toLowerCase();
+          const rNum = (r.reservationNumber || "").replace(/^#/, "").toLowerCase();
+          if (cleanNum && rNum === cleanNum) return false;
+          if (cleanId && rId === cleanId) return false;
+          return true;
+        });
+        safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
+        window.dispatchEvent(
+          new CustomEvent("bwc_reservation_change", {
+            detail: { resId: id, reservationNumber, action: "delete" },
+          })
+        );
+      },
+    });
+  } catch (err) {
+    console.warn("Failed to initialize Supabase Realtime:", err);
+  }
+}
+
+// Auto-trigger background server & Supabase sync on initial client load
 if (typeof window !== "undefined") {
   setTimeout(() => {
+    initSupabaseSync();
     adminStore.syncWithServer().catch(() => {});
   }, 1000);
 }

@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   ShieldCheck,
   Lock,
@@ -224,9 +224,18 @@ export function AdminPage() {
 
   // Modals & UI controls
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
+  const [selectedReservation, setSelectedReservation] = useState<AdminReservation | null>(null);
   const [showAddResModal, setShowAddResModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string>("");
+
+  // Unviewed & Highlighted Order / Booking Attention State
+  const [unviewedOrderIds, setUnviewedOrderIds] = useState<string[]>([]);
+  const [unviewedBookingIds, setUnviewedBookingIds] = useState<string[]>([]);
+  const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(null);
+  const [highlightedBookingId, setHighlightedBookingId] = useState<string | null>(null);
+  const highlightOrderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightBookingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reservation WhatsApp update state
   const [whatsAppRes, setWhatsAppRes] = useState<AdminReservation | null>(null);
@@ -447,6 +456,9 @@ export function AdminPage() {
         const title = `🔔 NEW ONLINE ORDER #${e.detail.orderNumber}!`;
         const msg = `Customer: ${e.detail.order?.customerName} • $${e.detail.order?.grandTotal?.toFixed(2)} (${e.detail.order?.fulfilmentType?.toUpperCase()})`;
 
+        adminStore.addUnviewedOrder(e.detail.orderNumber);
+        setUnviewedOrderIds(adminStore.getUnviewedOrderIds());
+
         showNotification(title);
         setLiveAlert({
           id: "alert_" + Date.now(),
@@ -472,8 +484,11 @@ export function AdminPage() {
           `Table #${e.detail.reservationNumber} for ${e.detail.reservation?.fullName} (${e.detail.reservation?.partySize})`
         );
 
-        const title = `📅 NEW TABLE RESERVATION #${e.detail.reservationNumber}!`;
+        const title = `📅 NEW TABLE BOOKING #${e.detail.reservationNumber}!`;
         const msg = `Guest: ${e.detail.reservation?.fullName} • ${e.detail.reservation?.partySize} • ${e.detail.reservation?.date} at ${e.detail.reservation?.time}`;
+
+        adminStore.addUnviewedReservation(e.detail.reservationNumber);
+        setUnviewedBookingIds(adminStore.getUnviewedReservationIds());
 
         showNotification(title);
         setLiveAlert({
@@ -493,12 +508,19 @@ export function AdminPage() {
       setNotifications(adminStore.getNotifications());
     };
 
+    const handleUnviewedChange = () => {
+      setUnviewedOrderIds(adminStore.getUnviewedOrderIds());
+      setUnviewedBookingIds(adminStore.getUnviewedReservationIds());
+    };
+
     const handleStorageChange = (e: StorageEvent) => {
       if (
         e.key === "bwc_admin_orders_v1" ||
         e.key === "bwc_site_maintenance_mode_v1" ||
         e.key === "bwc_admin_reservations_v1" ||
-        e.key === "bwc_admin_notifications_v1"
+        e.key === "bwc_admin_notifications_v1" ||
+        e.key === "bwc_unviewed_order_ids_v1" ||
+        e.key === "bwc_unviewed_booking_ids_v1"
       ) {
         loadData();
       }
@@ -508,6 +530,7 @@ export function AdminPage() {
     window.addEventListener("bwc_reservation_change", handleReservationChange);
     window.addEventListener("bwc_notification_added", handleNotificationAdded);
     window.addEventListener("bwc_notification_updated", handleNotificationAdded);
+    window.addEventListener("bwc_unviewed_change", handleUnviewedChange);
     window.addEventListener("storage", handleStorageChange);
 
     const interval = setInterval(loadData, 2500);
@@ -517,6 +540,7 @@ export function AdminPage() {
       window.removeEventListener("bwc_reservation_change", handleReservationChange);
       window.removeEventListener("bwc_notification_added", handleNotificationAdded);
       window.removeEventListener("bwc_notification_updated", handleNotificationAdded);
+      window.removeEventListener("bwc_unviewed_change", handleUnviewedChange);
       window.removeEventListener("storage", handleStorageChange);
       clearInterval(interval);
     };
@@ -532,6 +556,8 @@ export function AdminPage() {
     setWhatsAppAnalytics(adminStore.getWhatsAppAnalytics());
     setNotifications(adminStore.getNotifications());
     setSoundEnabled(adminStore.isSoundAlertEnabled());
+    setUnviewedOrderIds(adminStore.getUnviewedOrderIds());
+    setUnviewedBookingIds(adminStore.getUnviewedReservationIds());
     const m = adminStore.getMaintenanceConfig();
     setMaintenanceConfig(m);
     setCustomMaintenanceMsg(m.message);
@@ -744,6 +770,81 @@ export function AdminPage() {
     }
   };
 
+  // --------------------------------------------------------------------------
+  // VIEW & HIGHLIGHT NAVIGATION HANDLERS (FEATURES 1, 2, 3 & 5)
+  // --------------------------------------------------------------------------
+  const handleMarkOrderViewed = (orderIdOrNumber: string) => {
+    adminStore.markOrderViewed(orderIdOrNumber);
+    setUnviewedOrderIds(adminStore.getUnviewedOrderIds());
+  };
+
+  const handleMarkAllOrdersViewed = () => {
+    adminStore.markAllOrdersViewed();
+    setUnviewedOrderIds([]);
+    showNotification("All online orders marked as viewed.");
+  };
+
+  const handleMarkReservationViewed = (resIdOrNumber: string) => {
+    adminStore.markReservationViewed(resIdOrNumber);
+    setUnviewedBookingIds(adminStore.getUnviewedReservationIds());
+  };
+
+  const handleMarkAllReservationsViewed = () => {
+    adminStore.markAllReservationsViewed();
+    setUnviewedBookingIds([]);
+    showNotification("All table bookings marked as viewed.");
+  };
+
+  const handleViewOrderFromAlert = (orderIdentifier: string) => {
+    setActiveTab("orders");
+    setOrderStatusFilter("all");
+    setOrderSearch("");
+    handleMarkOrderViewed(orderIdentifier);
+    setHighlightedOrderId(orderIdentifier);
+
+    if (highlightOrderTimeoutRef.current) {
+      clearTimeout(highlightOrderTimeoutRef.current);
+    }
+    highlightOrderTimeoutRef.current = setTimeout(() => {
+      setHighlightedOrderId(null);
+    }, 3800);
+
+    setTimeout(() => {
+      const cleanNum = String(orderIdentifier || "").replace(/^#/, "").trim();
+      const el =
+        document.getElementById(`order-card-${cleanNum}`) ||
+        document.getElementById(`order-card-${orderIdentifier}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 150);
+  };
+
+  const handleViewBookingFromAlert = (resIdentifier: string) => {
+    setActiveTab("reservations");
+    setResStatusFilter("all");
+    setResSearch("");
+    handleMarkReservationViewed(resIdentifier);
+    setHighlightedBookingId(resIdentifier);
+
+    if (highlightBookingTimeoutRef.current) {
+      clearTimeout(highlightBookingTimeoutRef.current);
+    }
+    highlightBookingTimeoutRef.current = setTimeout(() => {
+      setHighlightedBookingId(null);
+    }, 3800);
+
+    setTimeout(() => {
+      const cleanNum = String(resIdentifier || "").replace(/^#/, "").trim();
+      const el =
+        document.getElementById(`booking-row-${cleanNum}`) ||
+        document.getElementById(`booking-row-${resIdentifier}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 150);
+  };
+
   // Add manual reservation
   const handleAddManualRes = (e: React.FormEvent) => {
     e.preventDefault();
@@ -852,6 +953,9 @@ export function AdminPage() {
   const pendingOrdersCount = orders.filter((o) => o.status === "pending").length;
   const inKitchenCount = orders.filter((o) => o.status === "kitchen").length;
   const readyOrdersCount = orders.filter((o) => o.status === "ready").length;
+
+  const unviewedOrdersCount = unviewedOrderIds.length;
+  const unviewedBookingsCount = unviewedBookingIds.length;
 
   const totalGuestsBooked = useMemo(() => {
     return reservations.reduce((sum, r) => {
@@ -1162,11 +1266,13 @@ export function AdminPage() {
                           key={n.id}
                           onClick={() => {
                             if (n.type === "order" || n.type === "cancellation") {
-                              setActiveTab("orders");
-                              const match = orders.find((o) => o.orderNumber === n.referenceId);
+                              handleViewOrderFromAlert(n.referenceId);
+                              const match = orders.find(
+                                (o) => o.orderNumber === n.referenceId || o.id === n.referenceId
+                              );
                               if (match) setSelectedOrder(match);
                             } else if (n.type === "reservation") {
-                              setActiveTab("reservations");
+                              handleViewBookingFromAlert(n.referenceId);
                             }
                             setShowNotifDropdown(false);
                           }}
@@ -1292,30 +1398,74 @@ export function AdminPage() {
 
           <div className="flex items-center gap-2">
             {liveAlert.type === "order" && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab("orders");
-                  const match = orders.find((o) => o.orderNumber === liveAlert.refId);
-                  if (match) setSelectedOrder(match);
-                  setLiveAlert(null);
-                }}
-                className="btn-olive py-1.5 px-3 text-xs font-bold rounded-lg cursor-pointer shadow-xs"
-              >
-                Open Order Ticket
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("orders");
+                    const match = orders.find(
+                      (o) => o.orderNumber === liveAlert.refId || o.id === liveAlert.refId
+                    );
+                    if (match) setSelectedOrder(match);
+                    handleMarkOrderViewed(liveAlert.refId);
+                    setLiveAlert(null);
+                  }}
+                  className="btn-olive py-1.5 px-3 text-xs font-bold rounded-lg cursor-pointer shadow-xs"
+                >
+                  Open Order Ticket
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleViewOrderFromAlert(liveAlert.refId);
+                  }}
+                  className="bg-[#d99214] hover:bg-[#b87508] text-[#191918] py-1.5 px-3 text-xs font-bold rounded-lg cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <Eye className="size-3.5" />
+                  <span>View Order</span>
+                </button>
+              </>
             )}
 
             {liveAlert.type === "reservation" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("reservations");
+                    const match = reservations.find(
+                      (r) => r.reservationNumber === liveAlert.refId || r.id === liveAlert.refId
+                    );
+                    if (match) setSelectedReservation(match);
+                    handleMarkReservationViewed(liveAlert.refId);
+                    setLiveAlert(null);
+                  }}
+                  className="btn-olive py-1.5 px-3 text-xs font-bold rounded-lg cursor-pointer shadow-xs"
+                >
+                  Open Booking Ticket
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleViewBookingFromAlert(liveAlert.refId);
+                  }}
+                  className="bg-[#d99214] hover:bg-[#b87508] text-[#191918] py-1.5 px-3 text-xs font-bold rounded-lg cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <Eye className="size-3.5" />
+                  <span>View Booking</span>
+                </button>
+              </>
+            )}
+
+            {liveAlert.type === "cancellation" && (
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab("reservations");
-                  setLiveAlert(null);
+                  handleViewOrderFromAlert(liveAlert.refId);
                 }}
                 className="btn-olive py-1.5 px-3 text-xs font-bold rounded-lg cursor-pointer shadow-xs"
               >
-                View Bookings
+                View Order
               </button>
             )}
 
@@ -1362,11 +1512,16 @@ export function AdminPage() {
               </span>
               <div className="flex items-center gap-2 mt-1 text-xs">
                 <span className="font-bold text-[#191918]">{orders.length} orders total</span>
-                {pendingOrdersCount > 0 && (
+                {unviewedOrdersCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.62rem] font-black uppercase bg-rose-600 text-white shadow-xs animate-pulse">
+                    <span className="size-1 rounded-full bg-white animate-ping" />
+                    {unviewedOrdersCount} NEW
+                  </span>
+                ) : pendingOrdersCount > 0 ? (
                   <span className="px-1.5 py-0.5 rounded-full text-[0.62rem] font-bold bg-[#d99214] text-[#191918]">
                     {pendingOrdersCount} new
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
@@ -1391,6 +1546,12 @@ export function AdminPage() {
               <div className="flex items-center gap-2 mt-1 text-xs text-[#595347]">
                 <Users className="size-3.5 text-[#d99214]" />
                 <span className="font-bold text-[#191918]">{totalGuestsBooked} guests booked</span>
+                {unviewedBookingsCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.62rem] font-black uppercase bg-rose-600 text-white shadow-xs animate-pulse">
+                    <span className="size-1 rounded-full bg-white animate-ping" />
+                    {unviewedBookingsCount} NEW
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -1465,10 +1626,14 @@ export function AdminPage() {
 
             <button
               onClick={() => setActiveTab("orders")}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 relative ${
                 activeTab === "orders"
                   ? "bg-[#1a3b6b] text-white shadow-sm"
                   : "bg-white/70 hover:bg-white text-[#595347]"
+              } ${
+                unviewedOrdersCount > 0
+                  ? "ring-2 ring-rose-500/70 shadow-[0_0_14px_rgba(225,29,72,0.3)] animate-pulse"
+                  : ""
               }`}
             >
               <ShoppingBag className="size-3.5" />
@@ -1478,18 +1643,34 @@ export function AdminPage() {
                   {pendingOrdersCount}
                 </span>
               )}
+              {unviewedOrdersCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.62rem] font-black uppercase bg-rose-600 text-white shadow-xs">
+                  <span className="size-1.5 rounded-full bg-white animate-ping" />
+                  {unviewedOrdersCount} NEW
+                </span>
+              )}
             </button>
 
             <button
               onClick={() => setActiveTab("reservations")}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 relative ${
                 activeTab === "reservations"
                   ? "bg-[#1a3b6b] text-white shadow-sm"
                   : "bg-white/70 hover:bg-white text-[#595347]"
+              } ${
+                unviewedBookingsCount > 0
+                  ? "ring-2 ring-rose-500/70 shadow-[0_0_14px_rgba(225,29,72,0.3)] animate-pulse"
+                  : ""
               }`}
             >
               <Calendar className="size-3.5" />
               <span>Table Bookings ({reservations.length})</span>
+              {unviewedBookingsCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.62rem] font-black uppercase bg-rose-600 text-white shadow-xs">
+                  <span className="size-1.5 rounded-full bg-white animate-ping" />
+                  {unviewedBookingsCount} NEW
+                </span>
+              )}
             </button>
 
             <button
@@ -1909,16 +2090,30 @@ export function AdminPage() {
                 )}
               </div>
 
-              {/* Search Bar */}
-              <div className="relative w-full md:w-72">
-                <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#767064]" />
-                <input
-                  type="text"
-                  value={orderSearch}
-                  onChange={(e) => setOrderSearch(e.target.value)}
-                  placeholder="Search name, phone, order #..."
-                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-white border border-[#c9bba6] focus:outline-none focus:border-[#1a3b6b] text-[#191918]"
-                />
+              {/* Actions & Search Bar */}
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                {unviewedOrdersCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllOrdersViewed}
+                    className="shrink-0 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors flex items-center gap-1 cursor-pointer shadow-xs"
+                    title="Mark all unviewed orders as viewed"
+                  >
+                    <Check className="size-3.5" />
+                    <span>Mark All Viewed ({unviewedOrdersCount})</span>
+                  </button>
+                )}
+                {/* Search Bar */}
+                <div className="relative w-full md:w-72">
+                  <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#767064]" />
+                  <input
+                    type="text"
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    placeholder="Search name, phone, order #..."
+                    className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-white border border-[#c9bba6] focus:outline-none focus:border-[#1a3b6b] text-[#191918]"
+                  />
+                </div>
               </div>
             </div>
 
@@ -1941,52 +2136,90 @@ export function AdminPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredOrders.map((ord) => (
-                  <div
-                    key={ord.id}
-                    className="p-4 sm:p-5 rounded-2xl bg-white border border-[#1a3b6b]/15 shadow-sm hover:border-[#1a3b6b]/40 transition-all flex flex-col justify-between space-y-4"
-                  >
-                    <div>
-                      {/* Card Header: Order #, Time, Status */}
-                      <div className="flex items-start justify-between pb-3 border-b border-[#1a3b6b]/10">
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-display font-bold text-base text-[#1a3b6b]">
-                              #{ord.orderNumber}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded text-[0.62rem] font-bold uppercase ${
-                                ord.fulfilmentType === "pickup"
-                                  ? "bg-[#ede4d5] text-[#b87508]"
-                                  : "bg-[#1a3b6b]/10 text-[#1a3b6b]"
-                              }`}
-                            >
-                              {ord.fulfilmentType}
+                {filteredOrders.map((ord) => {
+                  const isHighlighted =
+                    highlightedOrderId &&
+                    (highlightedOrderId === ord.orderNumber ||
+                      highlightedOrderId.replace(/^#/, "") === ord.orderNumber.replace(/^#/, "") ||
+                      highlightedOrderId === ord.id);
+                  const isUnviewed = unviewedOrderIds.some(
+                    (id) =>
+                      id === ord.orderNumber ||
+                      id.replace(/^#/, "") === ord.orderNumber.replace(/^#/, "") ||
+                      id === ord.id
+                  );
+
+                  return (
+                    <div
+                      key={ord.id}
+                      id={`order-card-${ord.orderNumber.replace(/^#/, "")}`}
+                      onClick={() => {
+                        if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
+                      }}
+                      className={`p-4 sm:p-5 rounded-2xl bg-white shadow-sm transition-all duration-300 flex flex-col justify-between space-y-4 ${
+                        isHighlighted
+                          ? "ring-4 ring-[#d99214] ring-offset-2 border-[#d99214] bg-amber-50/70 shadow-lg scale-[1.01]"
+                          : isUnviewed
+                            ? "border-rose-400 bg-rose-50/20 ring-2 ring-rose-300/40"
+                            : "border-[#1a3b6b]/15 hover:border-[#1a3b6b]/40"
+                      }`}
+                    >
+                      <div>
+                        {/* Card Header: Order #, Time, Status */}
+                        <div className="flex items-start justify-between pb-3 border-b border-[#1a3b6b]/10">
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-display font-bold text-base text-[#1a3b6b]">
+                                #{ord.orderNumber}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded text-[0.62rem] font-bold uppercase ${
+                                  ord.fulfilmentType === "pickup"
+                                    ? "bg-[#ede4d5] text-[#b87508]"
+                                    : "bg-[#1a3b6b]/10 text-[#1a3b6b]"
+                                }`}
+                              >
+                                {ord.fulfilmentType}
+                              </span>
+                              {isUnviewed && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMarkOrderViewed(ord.orderNumber);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.6rem] font-black uppercase bg-rose-600 text-white shadow-xs cursor-pointer hover:bg-rose-700 animate-pulse"
+                                  title="Click to mark as viewed"
+                                >
+                                  <span className="size-1 rounded-full bg-white animate-ping" />
+                                  NEW
+                                </button>
+                              )}
+                            </div>
+                            <span className="text-[0.68rem] text-[#767064] block mt-0.5">
+                              {ord.placedAt}
                             </span>
                           </div>
-                          <span className="text-[0.68rem] text-[#767064] block mt-0.5">
-                            {ord.placedAt}
-                          </span>
-                        </div>
 
-                        {/* Status Dropdown */}
-                        <select
-                          value={ord.status}
-                          onChange={(e) =>
-                            handleUpdateOrderStatus(ord.id, e.target.value as OrderStatus, ord.orderNumber)
-                          }
-                          className={`text-xs font-extrabold uppercase rounded-lg px-2.5 py-1 border cursor-pointer focus:outline-none ${
-                            ord.status === "pending"
-                              ? "bg-[#fef3c7] text-[#92400e] border-[#fde68a]"
-                              : ord.status === "kitchen"
-                                ? "bg-[#dbeafe] text-[#1e40af] border-[#bfdbfe]"
-                                : ord.status === "ready"
-                                  ? "bg-[#dcfce7] text-[#166534] border-[#bbf7d0]"
-                                  : ord.status === "completed"
-                                    ? "bg-gray-100 text-gray-700 border-gray-300"
-                                    : "bg-red-100 text-red-700 border-red-300"
-                          }`}
-                        >
+                          {/* Status Dropdown */}
+                          <select
+                            value={ord.status}
+                            onChange={(e) => {
+                              if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
+                              handleUpdateOrderStatus(ord.id, e.target.value as OrderStatus, ord.orderNumber);
+                            }}
+                            className={`text-xs font-extrabold uppercase rounded-lg px-2.5 py-1 border cursor-pointer focus:outline-none ${
+                              ord.status === "pending"
+                                ? "bg-[#fef3c7] text-[#92400e] border-[#fde68a]"
+                                : ord.status === "kitchen"
+                                  ? "bg-[#dbeafe] text-[#1e40af] border-[#bfdbfe]"
+                                  : ord.status === "ready"
+                                    ? "bg-[#dcfce7] text-[#166534] border-[#bbf7d0]"
+                                    : ord.status === "completed"
+                                      ? "bg-gray-100 text-gray-700 border-gray-300"
+                                      : "bg-red-100 text-red-700 border-red-300"
+                            }`}
+                          >
                           <option value="pending">Pending</option>
                           <option value="kitchen">In Kitchen</option>
                           <option value="ready">Ready</option>
@@ -2091,7 +2324,10 @@ export function AdminPage() {
 
                       <div className="grid grid-cols-3 gap-1.5">
                         <button
-                          onClick={() => setSelectedOrder(ord)}
+                          onClick={() => {
+                            if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
+                            setSelectedOrder(ord);
+                          }}
                           className="py-1.5 px-2 rounded-lg bg-[#ede4d5] hover:bg-[#dfd2be] text-xs font-bold text-[#1a3b6b] flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Printer className="size-3" />
@@ -2121,7 +2357,8 @@ export function AdminPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
             )}
           </div>
@@ -2150,7 +2387,19 @@ export function AdminPage() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                {unviewedBookingsCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllReservationsViewed}
+                    className="shrink-0 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors flex items-center gap-1 cursor-pointer shadow-xs"
+                    title="Mark all unviewed table bookings as viewed"
+                  >
+                    <Check className="size-3.5" />
+                    <span>Mark All Viewed ({unviewedBookingsCount})</span>
+                  </button>
+                )}
+
                 <div className="relative w-full md:w-64">
                   <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#767064]" />
                   <input
@@ -2207,92 +2456,148 @@ export function AdminPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1a3b6b]/10">
-                      {filteredReservations.map((res) => (
-                        <tr key={res.id} className="hover:bg-[#fdfbf7] transition-colors">
-                          <td className="p-3.5 font-bold text-[#1a3b6b]">
-                            #{res.reservationNumber}
-                            <span className="block text-[0.65rem] text-[#767064] font-normal mt-0.5">
-                              {res.createdAt}
-                            </span>
-                          </td>
-                          <td className="p-3.5">
-                            <span className="font-bold text-[#191918] block">{res.fullName}</span>
-                            <span className="text-[#595347] block text-[0.7rem]">{res.phone}</span>
-                            <span className="text-[#767064] block text-[0.65rem]">{res.email}</span>
-                          </td>
-                          <td className="p-3.5 font-semibold text-[#191918]">
-                            <span className="block">{res.partySize}</span>
-                            <span className="text-[0.7rem] text-[#d99214] font-bold block">
-                              {res.seating}
-                            </span>
-                          </td>
-                          <td className="p-3.5">
-                            <span className="font-bold text-[#1a3b6b] block">{res.date}</span>
-                            <span className="text-[0.7rem] text-[#595347] block">{res.time}</span>
-                          </td>
-                          <td className="p-3.5 max-w-xs text-[#595347]">
-                            {res.specialRequests || <span className="italic text-[#8c8273]">None</span>}
-                          </td>
-                          <td className="p-3.5">
-                            <select
-                              value={res.status}
-                              onChange={(e) =>
-                                handleUpdateResStatus(res.id, e.target.value as ReservationStatus)
-                              }
-                              className={`text-xs font-bold uppercase rounded-lg px-2 py-1 border cursor-pointer focus:outline-none ${
-                                res.status === "confirmed"
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300"
-                                  : res.status === "seated"
-                                    ? "bg-blue-50 text-blue-800 border-blue-300"
-                                    : res.status === "completed"
-                                      ? "bg-gray-100 text-gray-700 border-gray-300"
-                                      : "bg-red-50 text-red-800 border-red-300"
-                              }`}
-                            >
-                              <option value="confirmed">Confirmed</option>
-                              <option value="seated">Seated</option>
-                              <option value="completed">Completed</option>
-                              <option value="cancelled">Cancelled</option>
-                            </select>
-                          </td>
-                          <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
-                            <a
-                              href={`tel:${res.phone}`}
-                              className="p-1.5 rounded-lg bg-[#1a3b6b]/10 hover:bg-[#1a3b6b]/20 text-[#1a3b6b] inline-flex items-center justify-center transition-colors"
-                              title={`Call Guest (${res.phone})`}
-                            >
-                              <Phone className="size-3.5" />
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenResWhatsApp(
-                                  res,
-                                  res.status === "seated"
-                                    ? "seated"
-                                    : res.status === "cancelled"
-                                      ? "cancelled"
+                      {filteredReservations.map((res) => {
+                        const isResHighlighted =
+                          highlightedBookingId &&
+                          (highlightedBookingId === res.reservationNumber ||
+                            highlightedBookingId.replace(/^#/, "") === res.reservationNumber.replace(/^#/, "") ||
+                            highlightedBookingId === res.id);
+                        const isResUnviewed = unviewedBookingIds.some(
+                          (id) =>
+                            id === res.reservationNumber ||
+                            id.replace(/^#/, "") === res.reservationNumber.replace(/^#/, "") ||
+                            id === res.id
+                        );
+
+                        return (
+                          <tr
+                            key={res.id}
+                            id={`booking-row-${res.reservationNumber.replace(/^#/, "")}`}
+                            onClick={() => {
+                              if (isResUnviewed) handleMarkReservationViewed(res.reservationNumber);
+                            }}
+                            className={`transition-all duration-300 ${
+                              isResHighlighted
+                                ? "bg-amber-100/90 ring-2 ring-inset ring-[#d99214] font-semibold"
+                                : isResUnviewed
+                                  ? "bg-rose-50/40 hover:bg-rose-50/70"
+                                  : "hover:bg-[#fdfbf7]"
+                            }`}
+                          >
+                            <td className="p-3.5 font-bold text-[#1a3b6b]">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span>#{res.reservationNumber}</span>
+                                {isResUnviewed && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMarkReservationViewed(res.reservationNumber);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.6rem] font-black uppercase bg-rose-600 text-white shadow-xs cursor-pointer hover:bg-rose-700 animate-pulse"
+                                    title="Click to mark as viewed"
+                                  >
+                                    <span className="size-1 rounded-full bg-white animate-ping" />
+                                    NEW
+                                  </button>
+                                )}
+                              </div>
+                              <span className="block text-[0.65rem] text-[#767064] font-normal mt-0.5">
+                                {res.createdAt}
+                              </span>
+                            </td>
+                            <td className="p-3.5">
+                              <span className="font-bold text-[#191918] block">{res.fullName}</span>
+                              <span className="text-[#595347] block text-[0.7rem]">{res.phone}</span>
+                              <span className="text-[#767064] block text-[0.65rem]">{res.email}</span>
+                            </td>
+                            <td className="p-3.5 font-semibold text-[#191918]">
+                              <span className="block">{res.partySize}</span>
+                              <span className="text-[0.7rem] text-[#d99214] font-bold block">
+                                {res.seating}
+                              </span>
+                            </td>
+                            <td className="p-3.5">
+                              <span className="font-bold text-[#1a3b6b] block">{res.date}</span>
+                              <span className="text-[0.7rem] text-[#595347] block">{res.time}</span>
+                            </td>
+                            <td className="p-3.5 max-w-xs text-[#595347]">
+                              {res.specialRequests || <span className="italic text-[#8c8273]">None</span>}
+                            </td>
+                            <td className="p-3.5">
+                              <select
+                                value={res.status}
+                                onChange={(e) => {
+                                  if (isResUnviewed) handleMarkReservationViewed(res.reservationNumber);
+                                  handleUpdateResStatus(res.id, e.target.value as ReservationStatus);
+                                }}
+                                className={`text-xs font-bold uppercase rounded-lg px-2 py-1 border cursor-pointer focus:outline-none ${
+                                  res.status === "confirmed"
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                    : res.status === "seated"
+                                      ? "bg-blue-50 text-blue-800 border-blue-300"
                                       : res.status === "completed"
-                                        ? "completed"
-                                        : "confirmed"
-                                )
-                              }
-                              className="p-1.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] hover:text-[#075E54] inline-flex items-center justify-center transition-colors cursor-pointer"
-                              title="Send WhatsApp Booking Update"
-                            >
-                              <MessageCircle className="size-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRes(res.id, res.reservationNumber)}
-                              className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 inline-flex items-center justify-center cursor-pointer transition-colors"
-                              title="Delete Record"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                                        ? "bg-gray-100 text-gray-700 border-gray-300"
+                                        : "bg-red-50 text-red-800 border-red-300"
+                                }`}
+                              >
+                                <option value="confirmed">Confirmed</option>
+                                <option value="seated">Seated</option>
+                                <option value="completed">Completed</option>
+                                <option value="cancelled">Cancelled</option>
+                              </select>
+                            </td>
+                            <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isResUnviewed) handleMarkReservationViewed(res.reservationNumber);
+                                  setSelectedReservation(res);
+                                }}
+                                className="p-1.5 rounded-lg bg-[#ede4d5] hover:bg-[#dfd2be] text-[#1a3b6b] inline-flex items-center justify-center transition-colors cursor-pointer"
+                                title="Open Booking Ticket"
+                              >
+                                <Printer className="size-3.5" />
+                              </button>
+                              <a
+                                href={`tel:${res.phone}`}
+                                className="p-1.5 rounded-lg bg-[#1a3b6b]/10 hover:bg-[#1a3b6b]/20 text-[#1a3b6b] inline-flex items-center justify-center transition-colors"
+                                title={`Call Guest (${res.phone})`}
+                              >
+                                <Phone className="size-3.5" />
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleOpenResWhatsApp(
+                                    res,
+                                    res.status === "seated"
+                                      ? "seated"
+                                      : res.status === "cancelled"
+                                        ? "cancelled"
+                                        : res.status === "completed"
+                                          ? "completed"
+                                          : "confirmed"
+                                  )
+                                }
+                                className="p-1.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] hover:text-[#075E54] inline-flex items-center justify-center transition-colors cursor-pointer"
+                                title="Send WhatsApp Booking Update"
+                              >
+                                <MessageCircle className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRes(res.id, res.reservationNumber)}
+                                className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 inline-flex items-center justify-center cursor-pointer transition-colors"
+                                title="Delete Record"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -2753,6 +3058,129 @@ export function AdminPage() {
                 type="button"
                 onClick={() => setSelectedOrder(null)}
                 className="py-2.5 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-bold text-gray-700 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================== */}
+      {/* MODAL 1B: TABLE BOOKING TICKET & DETAILS MODAL (FEATURE 3) */}
+      {/* ====================================================================== */}
+      {selectedReservation && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setSelectedReservation(null)}
+        >
+          <div
+            className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-[#c9bba6] p-6 space-y-4 my-auto animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between pb-3 border-b border-[#1a3b6b]/15">
+              <div>
+                <span className="text-[0.65rem] font-bold uppercase tracking-wider text-[#d99214]">
+                  BEACHWOOD CAFE RESERVATION TICKET
+                </span>
+                <h3 className="font-display text-2xl font-bold text-[#1a3b6b]">
+                  Booking #{selectedReservation.reservationNumber}
+                </h3>
+                <p className="text-xs text-[#767064]">
+                  Booked On: {selectedReservation.createdAt}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedReservation(null)}
+                className="p-1 rounded-full text-[#767064] hover:text-[#191918] cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {/* Guest Details */}
+            <div className="p-3.5 rounded-xl bg-[#fdfbf7] border border-[#c9bba6]/50 text-xs space-y-1.5">
+              <p className="font-bold text-sm text-[#191918]">{selectedReservation.fullName}</p>
+              <div className="grid grid-cols-2 gap-2 pt-1 text-[#595347]">
+                <p className="flex items-center gap-1.5">
+                  <Phone className="size-3 text-[#1a3b6b]" />
+                  <span>{selectedReservation.phone}</span>
+                </p>
+                <p className="truncate">{selectedReservation.email}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-1 font-semibold text-[#1a3b6b]">
+                <p>Party Size: {selectedReservation.partySize}</p>
+                <p>Seating: {selectedReservation.seating}</p>
+              </div>
+              <div className="pt-1 text-[#191918]">
+                <p className="font-bold">
+                  Schedule: {selectedReservation.date} at {selectedReservation.time}
+                </p>
+              </div>
+              {selectedReservation.specialRequests && (
+                <div className="mt-2 p-2 rounded-lg bg-[#fef7e6] border border-[#f5deaa] text-[0.72rem] text-[#b87508]">
+                  <strong>Special Requests:</strong> {selectedReservation.specialRequests}
+                </div>
+              )}
+            </div>
+
+            {/* Reservation Status Selector */}
+            <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between gap-3 text-xs">
+              <span className="font-bold text-[#595347] uppercase tracking-wider text-[0.7rem]">
+                Booking Status
+              </span>
+              <select
+                value={selectedReservation.status}
+                onChange={(e) => {
+                  const newStatus = e.target.value as ReservationStatus;
+                  handleUpdateResStatus(selectedReservation.id, newStatus);
+                  setSelectedReservation((prev) => (prev ? { ...prev, status: newStatus } : null));
+                }}
+                className="font-bold text-xs rounded-lg px-3 py-1.5 border border-gray-300 bg-white focus:outline-none focus:border-[#1a3b6b] cursor-pointer"
+              >
+                <option value="confirmed">Confirmed</option>
+                <option value="seated">Seated</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-[#1a3b6b]/15">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="btn-olive py-2 px-3 text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5"
+                >
+                  <Printer className="size-3.5" />
+                  <span>Print Ticket</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenResWhatsApp(
+                      selectedReservation,
+                      selectedReservation.status === "seated"
+                        ? "seated"
+                        : selectedReservation.status === "cancelled"
+                          ? "cancelled"
+                          : selectedReservation.status === "completed"
+                            ? "completed"
+                            : "confirmed"
+                    )
+                  }
+                  className="py-2 px-3 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <MessageCircle className="size-3.5" />
+                  <span>Send WhatsApp</span>
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedReservation(null)}
+                className="px-4 py-2 text-xs font-bold text-[#595347] hover:text-[#191918] cursor-pointer"
               >
                 Close
               </button>
