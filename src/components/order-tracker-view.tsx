@@ -33,6 +33,7 @@ export const safeOrderNumber = (num: unknown): string => {
 interface ErrorBoundaryProps {
   children: ReactNode;
   onClose?: () => void;
+  onRetry?: () => void;
 }
 
 interface ErrorBoundaryState {
@@ -54,6 +55,15 @@ export class OrderTrackErrorBoundary extends Component<ErrorBoundaryProps, Error
     console.error("OrderTrack caught error:", error, errorInfo);
   }
 
+  handleRetry = () => {
+    this.setState({ hasError: false, error: undefined });
+    // Also trigger cloud sync in background
+    adminStore.syncWithServer().catch(() => {});
+    if (this.props.onRetry) {
+      this.props.onRetry();
+    }
+  };
+
   override render() {
     if (this.state.hasError) {
       return (
@@ -69,7 +79,7 @@ export class OrderTrackErrorBoundary extends Component<ErrorBoundaryProps, Error
           </div>
           <div className="flex justify-center gap-2 pt-2">
             <button
-              onClick={() => this.setState({ hasError: false })}
+              onClick={this.handleRetry}
               className="btn-olive py-2 px-5 text-xs font-bold rounded-xl cursor-pointer"
             >
               Retry
@@ -111,6 +121,8 @@ export function OrderTrackerView({
 
   const [recentOrders, setRecentOrders] = useState<AdminOrder[]>([]);
   const [searchError, setSearchError] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const [isLoadingOrder, setIsLoadingOrder] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelFeedback, setCancelFeedback] = useState<{
@@ -120,12 +132,36 @@ export function OrderTrackerView({
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
 
-  // Sync initialOrderNumber prop changes
+  // Sync initialOrderNumber / URL order prop changes
   useEffect(() => {
-    if (initialOrderNumber) {
-      setTargetOrderNumber(initialOrderNumber);
-      const match = adminStore.findOrder(initialOrderNumber);
-      if (match) setSelectedOrder(match);
+    let orderToFind = initialOrderNumber;
+    if (!orderToFind && typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        orderToFind = params.get("order") || params.get("id") || params.get("track") || undefined;
+      } catch {}
+    }
+
+    if (orderToFind) {
+      setTargetOrderNumber(orderToFind);
+      const match = adminStore.findOrder(orderToFind);
+      if (match) {
+        setSelectedOrder(match);
+      } else {
+        setIsLoadingOrder(true);
+        adminStore
+          .lookupOrder(orderToFind)
+          .then((res) => {
+            if (res) {
+              setSelectedOrder(res);
+              setTargetOrderNumber(res.orderNumber);
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            setIsLoadingOrder(false);
+          });
+      }
     }
   }, [initialOrderNumber]);
 
@@ -286,6 +322,8 @@ export function OrderTrackerView({
       return;
     }
 
+    let timerId: ReturnType<typeof setInterval> | null = null;
+
     const updateCountdown = () => {
       const GRACE_PERIOD_MS = 60 * 1000;
       const elapsed = Date.now() - orderCreatedAt;
@@ -294,16 +332,25 @@ export function OrderTrackerView({
 
       setRemainingSeconds(secondsLeft);
 
-      if (remainingMs <= 0 && timerId) {
+      if (remainingMs <= 0 && timerId !== null) {
         clearInterval(timerId);
+        timerId = null;
       }
     };
 
+    // Calculate initial countdown state immediately
     updateCountdown();
-    const timerId = setInterval(updateCountdown, 1000);
+
+    // Only start interval if still within the 1-minute grace window
+    const initialElapsed = Date.now() - orderCreatedAt;
+    if (initialElapsed < 60 * 1000) {
+      timerId = setInterval(updateCountdown, 1000);
+    }
 
     return () => {
-      clearInterval(timerId);
+      if (timerId !== null) {
+        clearInterval(timerId);
+      }
     };
   }, [selectedOrder?.id, selectedOrder?.orderNumber, selectedOrder?.timestamp]);
 
@@ -319,23 +366,27 @@ export function OrderTrackerView({
       return;
     }
 
+    setIsSearching(true);
     setTargetOrderNumber(query);
-    let found = adminStore.findOrder(query);
-    if (!found) {
-      // Sync with cloud server in case order was placed from another device
-      await adminStore.syncWithServer();
-      found = adminStore.findOrder(query);
-    }
 
-    if (found) {
-      setTargetOrderNumber(found.orderNumber);
-      setSelectedOrder(found);
-      adminStore.recordCustomerOrderId(found.orderNumber);
-      setSearchQuery("");
-    } else {
+    try {
+      const found = await adminStore.lookupOrder(query);
+      if (found) {
+        setTargetOrderNumber(found.orderNumber);
+        setSelectedOrder(found);
+        setSearchQuery("");
+        setRecentOrders(adminStore.getCustomerRecentOrders());
+      } else {
+        setSearchError(
+          `No order found matching "${query}". Please check your order ID (e.g. BWC-12345) or phone number.`
+        );
+      }
+    } catch {
       setSearchError(
-        `No order found matching "${query}". Please check your order ID (e.g. BWC-12345) or phone number.`
+        "Unable to reach the live order server. Please check your internet connection and try again."
       );
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -504,9 +555,17 @@ export function OrderTrackerView({
             </div>
             <button
               type="submit"
-              className="btn-olive py-2.5 px-4 text-xs font-bold rounded-xl shrink-0 cursor-pointer shadow-xs"
+              disabled={isSearching}
+              className="btn-olive py-2.5 px-4 text-xs font-bold rounded-xl shrink-0 cursor-pointer shadow-xs disabled:opacity-60 flex items-center gap-1.5"
             >
-              Track
+              {isSearching ? (
+                <>
+                  <div className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  <span>Searching...</span>
+                </>
+              ) : (
+                <span>Track</span>
+              )}
             </button>
           </form>
 
@@ -523,13 +582,12 @@ export function OrderTrackerView({
               <span className="text-[0.68rem] font-bold text-[#767064] shrink-0 uppercase tracking-wider">
                 Your Orders:
               </span>
-              {recentOrders.map((ord) => {
-                if (!ord) return null;
+              {recentOrders.filter(Boolean).map((ord) => {
                 const ordNum = safeOrderNumber(ord.orderNumber);
                 const isSelected = safeOrderNumber(selectedOrder?.orderNumber) === ordNum;
                 return (
                   <button
-                    key={ord.id || ordNum}
+                    key={ord.id || ordNum || String(Math.random())}
                     type="button"
                     onClick={() => {
                       setTargetOrderNumber(ord.orderNumber);
@@ -581,7 +639,17 @@ export function OrderTrackerView({
         {/* ===================================================================== */}
         {/* 3. SELECTED ORDER STATUS VIEW */}
         {/* ===================================================================== */}
-        {selectedOrder ? (
+        {isLoadingOrder ? (
+          <div className="py-14 text-center space-y-3 bg-white rounded-2xl border border-dashed border-[#c9bba6] p-6 animate-in fade-in">
+            <div className="size-8 mx-auto border-3 border-[#1a3b6b] border-t-transparent rounded-full animate-spin" />
+            <div>
+              <h3 className="font-bold text-sm text-[#191918]">Loading Your Order...</h3>
+              <p className="text-xs text-[#767064] mt-1 max-w-sm mx-auto">
+                Synchronizing live kitchen status. Please wait a moment.
+              </p>
+            </div>
+          </div>
+        ) : selectedOrder ? (
           <div className="space-y-4">
             {/* Order Header Card */}
             <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#1a3b6b]/15 shadow-sm space-y-3">
@@ -721,11 +789,25 @@ export function OrderTrackerView({
                   {selectedOrder.cancelledAt && (
                     <p className="text-[0.68rem] text-rose-600">
                       Cancelled at:{" "}
-                      {new Date(selectedOrder.cancelledAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
+                      {(() => {
+                        try {
+                          const ts =
+                            typeof selectedOrder.cancelledAt === "number"
+                              ? selectedOrder.cancelledAt
+                              : Number(selectedOrder.cancelledAt) ||
+                                Date.parse(String(selectedOrder.cancelledAt));
+                          const d = new Date(ts);
+                          return isNaN(d.getTime())
+                            ? "Recently"
+                            : d.toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                              });
+                        } catch {
+                          return "Recently";
+                        }
+                      })()}
                     </p>
                   )}
                 </div>

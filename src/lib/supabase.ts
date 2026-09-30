@@ -241,6 +241,48 @@ export async function fetchOrdersFromSupabase(): Promise<AdminOrder[]> {
   }
 }
 
+export async function fetchSingleOrderFromSupabase(query: string): Promise<AdminOrder | null> {
+  if (!supabase || !query || !query.trim()) return null;
+  try {
+    const raw = query.trim();
+    const cleanNum = raw.replace(/^#/, "").trim();
+    const cleanDigits = raw.replace(/\D/g, "");
+    const hasAlpha = /[a-zA-Z]/.test(raw);
+
+    const filterParts: string[] = [];
+    if (cleanNum) {
+      filterParts.push(`order_number.ilike.%${cleanNum}%`);
+      filterParts.push(`id.ilike.%${cleanNum}%`);
+    }
+    if (!hasAlpha && cleanDigits.length >= 10) {
+      filterParts.push(`customer_phone.ilike.%${cleanDigits.slice(-10)}%`);
+    }
+
+    if (filterParts.length === 0) return null;
+
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .or(filterParts.join(","))
+      .order("timestamp", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.warn("Supabase fetch single order error:", error.message);
+      return null;
+    }
+
+    if (data && data.length > 0 && data[0]) {
+      return rowToOrder(data[0]);
+    }
+
+    return null;
+  } catch (err) {
+    console.warn("Supabase fetch single order failed:", err);
+    return null;
+  }
+}
+
 export async function upsertOrderToSupabase(order: AdminOrder): Promise<boolean> {
   if (!supabase) return false;
   try {

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   OrderTrackerView,
   OrderTrackErrorBoundary,
@@ -19,6 +19,8 @@ export function OrderTrackModal({
   onClose,
   initialOrderNumber,
 }: OrderTrackModalProps) {
+  const [retryCount, setRetryCount] = useState(0);
+
   // Close on Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -44,8 +46,12 @@ export function OrderTrackModal({
         className="relative w-full max-w-2xl bg-[#fdfbf7] rounded-3xl border border-[#1a3b6b]/20 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] text-[#191918]"
         onClick={(e) => e.stopPropagation()}
       >
-        <OrderTrackErrorBoundary onClose={onClose}>
+        <OrderTrackErrorBoundary
+          onClose={onClose}
+          onRetry={() => setRetryCount((c) => c + 1)}
+        >
           <OrderTrackerView
+            key={`modal_track_${retryCount}_${initialOrderNumber || ""}`}
             initialOrderNumber={initialOrderNumber}
             isModal={true}
             onClose={onClose}

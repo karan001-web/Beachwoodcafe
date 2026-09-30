@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Clock, ShieldCheck, Sparkles } from "lucide-react";
 import { OrderTrackerView, OrderTrackErrorBoundary } from "../components/order-tracker-view";
@@ -26,6 +27,8 @@ export const Route = createFileRoute("/track")({
 });
 
 function TrackOrderPage() {
+  const [retryCount, setRetryCount] = useState(0);
+
   return (
     <div className="min-h-[85vh] bg-[#faf8f5] py-8 sm:py-14">
       <div className="site-container max-w-3xl">
@@ -46,8 +49,8 @@ function TrackOrderPage() {
 
         {/* Tracker Card */}
         <div className="bg-[#fdfbf7] rounded-3xl border border-[#1a3b6b]/20 shadow-xl overflow-hidden">
-          <OrderTrackErrorBoundary>
-            <OrderTrackerView isModal={false} />
+          <OrderTrackErrorBoundary onRetry={() => setRetryCount((c) => c + 1)}>
+            <OrderTrackerView key={`page_track_${retryCount}`} isModal={false} />
           </OrderTrackErrorBoundary>
         </div>
 

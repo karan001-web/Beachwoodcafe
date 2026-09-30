@@ -4,6 +4,7 @@
 import {
   isSupabaseConfigured,
   fetchOrdersFromSupabase,
+  fetchSingleOrderFromSupabase,
   upsertOrderToSupabase,
   updateOrderStatusInSupabase,
   deleteOrderFromSupabase,
@@ -824,7 +825,7 @@ export const adminStore = {
     return { success: true, order };
   },
 
-  // Search orders by orderNumber, id, or phone number
+  // Search orders by orderNumber, id, or phone number locally
   findOrder(query: string): AdminOrder | undefined {
     if (!query || !query.trim()) return undefined;
     const cleanQuery = query.trim().toLowerCase().replace(/^#/, "");
@@ -834,6 +835,7 @@ export const adminStore = {
 
     // 1. Exact order number or ID match (highest priority)
     const exactOrder = orders.find((o) => {
+      if (!o) return false;
       const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
       const oId = (o.id || "").trim().toLowerCase();
       return (oNum && oNum === cleanQuery) || (oId && oId === cleanQuery);
@@ -843,6 +845,7 @@ export const adminStore = {
     // 2. Exact or clean phone number match (only if query doesn't look like an order ID and has 10+ digits)
     if (!hasAlpha && cleanDigits.length >= 10) {
       return orders.find((o) => {
+        if (!o) return false;
         const oPhone = (o.customerPhone || "").replace(/\D/g, "");
         return (
           oPhone.length >= 10 &&
@@ -854,6 +857,57 @@ export const adminStore = {
     return undefined;
   },
 
+  // Asynchronous robust cross-device order lookup (Local -> Supabase -> Server API)
+  async lookupOrder(query: string): Promise<AdminOrder | undefined> {
+    if (!query || !query.trim()) return undefined;
+    const cleanQuery = query.trim().replace(/^#/, "");
+    const cleanLower = cleanQuery.toLowerCase();
+    const cleanDigits = query.replace(/\D/g, "");
+
+    // 1. Check if order was explicitly deleted/tombstoned by admin
+    const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    if (deletedOrderIds.includes(cleanLower)) {
+      return undefined;
+    }
+
+    // 2. Check local memory / localStorage first
+    const localMatch = this.findOrder(query);
+    if (localMatch) {
+      return localMatch;
+    }
+
+    // 3. Search Supabase directly (instant cloud database lookup across devices)
+    if (isSupabaseConfigured()) {
+      try {
+        const sbOrder = await fetchSingleOrderFromSupabase(query);
+        if (sbOrder) {
+          const sbNum = String(sbOrder.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+          const sbId = String(sbOrder.id || "").trim().toLowerCase();
+          if (!deletedOrderIds.includes(sbNum) && !deletedOrderIds.includes(sbId)) {
+            const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+            const existingIdx = orders.findIndex(
+              (o) => o && (o.id === sbOrder.id || o.orderNumber === sbOrder.orderNumber)
+            );
+            if (existingIdx !== -1) {
+              orders[existingIdx] = sbOrder;
+            } else {
+              orders.unshift(sbOrder);
+            }
+            safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+            this.recordCustomerOrderId(sbOrder.orderNumber);
+            return sbOrder;
+          }
+        }
+      } catch (err) {
+        console.warn("Supabase lookupOrder error:", err);
+      }
+    }
+
+    // 4. Fallback to server sync with target query
+    await this.syncWithServer(query);
+    return this.findOrder(query);
+  },
+
   // Customer order history on this browser
   getCustomerRecentOrders(): AdminOrder[] {
     if (typeof window === "undefined") return [];
@@ -862,18 +916,20 @@ export const adminStore = {
     const result: AdminOrder[] = [];
 
     for (const num of customerOrderIds) {
+      if (!num) continue;
       const cleanTarget = String(num).replace(/^#/, "").trim().toLowerCase();
       const match = orders.find((o) => {
+        if (!o) return false;
         const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
         const oId = o.id ? String(o.id).trim().toLowerCase() : "";
         return (oNum && oNum === cleanTarget) || (oId && oId === cleanTarget);
       });
-      if (match && !result.some((r) => r.orderNumber === match.orderNumber)) {
+      if (match && !result.some((r) => r && r.orderNumber === match.orderNumber)) {
         result.push(match);
       }
     }
 
-    return result.sort((a, b) => b.timestamp - a.timestamp);
+    return result.sort((a, b) => ((b?.timestamp || 0) - (a?.timestamp || 0)));
   },
 
   getCustomerLastOrderId(): string | null {
@@ -1836,7 +1892,7 @@ export const adminStore = {
   // --------------------------------------------------------------------------
   // 8. SERVER SYNCHRONIZATION (CROSS-DEVICE & MOBILE VIEW SYNC)
   // --------------------------------------------------------------------------
-  async syncWithServer(): Promise<{
+  async syncWithServer(targetQuery?: string): Promise<{
     syncedOrders: number;
     updatedOrders: number;
     syncedReservations: number;
@@ -1927,6 +1983,11 @@ export const adminStore = {
       const mergedOrders = [...localOrders];
       const isUserAdmin = this.isAuthenticated();
 
+      const cleanTarget = targetQuery
+        ? String(targetQuery).replace(/^#/, "").trim().toLowerCase()
+        : "";
+      const cleanTargetDigits = targetQuery ? targetQuery.replace(/\D/g, "") : "";
+
       for (const remote of remoteOrders) {
         if (!remote) continue;
         const cleanRemoteNum = remote.orderNumber
@@ -1960,9 +2021,23 @@ export const adminStore = {
               const cleanId = String(id).replace(/^#/, "").trim().toLowerCase();
               return cleanId === cleanRemoteNum || cleanId === cleanRemoteId;
             });
-            if (isMine) {
+
+            const matchesTarget = Boolean(
+              cleanTarget &&
+                (cleanRemoteNum === cleanTarget ||
+                  cleanRemoteId === cleanTarget ||
+                  (cleanTargetDigits.length >= 10 &&
+                    (remote.customerPhone || "")
+                      .replace(/\D/g, "")
+                      .includes(cleanTargetDigits.slice(-10))))
+            );
+
+            if (isMine || matchesTarget) {
               mergedOrders.unshift(remote);
               newOrdersCount++;
+              if (matchesTarget && remote.orderNumber) {
+                this.recordCustomerOrderId(remote.orderNumber);
+              }
             }
           }
         } else {
