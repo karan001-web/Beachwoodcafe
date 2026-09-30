@@ -698,10 +698,18 @@ export function AdminPage() {
   };
 
   // Order status update
-  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus, orderNumber?: string) => {
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+
+  const handleUpdateOrderStatus = async (
+    orderId: string,
+    status: OrderStatus,
+    orderNumber?: string
+  ) => {
     const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
     const cleanNum = orderNumber ? String(orderNumber).trim().toLowerCase().replace(/^#/, "") : "";
     const now = Date.now();
+
+    setUpdatingOrderId(orderId || orderNumber || "");
 
     // 1. Update React state immediately so UI transitions directly with zero intermediate stages
     setOrders((prev) =>
@@ -713,10 +721,6 @@ export function AdminPage() {
       })
     );
 
-    // 2. Persist in admin store and sync to server
-    adminStore.updateOrderStatus(orderId, status, orderNumber);
-
-    showNotification(`Order status updated to "${status.toUpperCase()}"`);
     if (
       selectedOrder &&
       (selectedOrder.id === orderId ||
@@ -725,6 +729,14 @@ export function AdminPage() {
     ) {
       setSelectedOrder((prev) => (prev ? { ...prev, status, statusUpdatedAt: now } : null));
     }
+
+    // 2. Persist in admin store and sync directly to Supabase & server
+    await adminStore.updateOrderStatus(orderId, status, orderNumber);
+
+    showNotification(`Order status updated to "${status.toUpperCase()}"`);
+    setTimeout(() => {
+      setUpdatingOrderId(null);
+    }, 600);
   };
 
   // Delete Order
@@ -746,8 +758,8 @@ export function AdminPage() {
   };
 
   // Reservation status update
-  const handleUpdateResStatus = (resId: string, status: ReservationStatus) => {
-    adminStore.updateReservationStatus(resId, status);
+  const handleUpdateResStatus = async (resId: string, status: ReservationStatus) => {
+    await adminStore.updateReservationStatus(resId, status);
     loadData();
     const matched = reservations.find((r) => r.id === resId || r.reservationNumber === resId);
     if (matched) {
@@ -2202,30 +2214,38 @@ export function AdminPage() {
                           </div>
 
                           {/* Status Dropdown */}
-                          <select
-                            value={ord.status}
-                            onChange={(e) => {
-                              if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
-                              handleUpdateOrderStatus(ord.id, e.target.value as OrderStatus, ord.orderNumber);
-                            }}
-                            className={`text-xs font-extrabold uppercase rounded-lg px-2.5 py-1 border cursor-pointer focus:outline-none ${
-                              ord.status === "pending"
-                                ? "bg-[#fef3c7] text-[#92400e] border-[#fde68a]"
-                                : ord.status === "kitchen"
-                                  ? "bg-[#dbeafe] text-[#1e40af] border-[#bfdbfe]"
-                                  : ord.status === "ready"
-                                    ? "bg-[#dcfce7] text-[#166534] border-[#bbf7d0]"
-                                    : ord.status === "completed"
-                                      ? "bg-gray-100 text-gray-700 border-gray-300"
-                                      : "bg-red-100 text-red-700 border-red-300"
-                            }`}
-                          >
-                          <option value="pending">Pending</option>
-                          <option value="kitchen">In Kitchen</option>
-                          <option value="ready">Ready</option>
-                          <option value="completed">Completed</option>
-                          <option value="cancelled">Cancelled</option>
-                        </select>
+                          <div className="relative inline-flex items-center">
+                            <select
+                              value={ord.status}
+                              disabled={updatingOrderId === ord.id || updatingOrderId === ord.orderNumber}
+                              onChange={(e) => {
+                                if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
+                                handleUpdateOrderStatus(ord.id, e.target.value as OrderStatus, ord.orderNumber);
+                              }}
+                              className={`text-xs font-extrabold uppercase rounded-lg px-2.5 py-1 border cursor-pointer focus:outline-none transition-all ${
+                                updatingOrderId === ord.id || updatingOrderId === ord.orderNumber ? "opacity-70 cursor-wait" : ""
+                              } ${
+                                ord.status === "pending"
+                                  ? "bg-[#fef3c7] text-[#92400e] border-[#fde68a]"
+                                  : ord.status === "kitchen"
+                                    ? "bg-[#dbeafe] text-[#1e40af] border-[#bfdbfe]"
+                                    : ord.status === "ready"
+                                      ? "bg-[#dcfce7] text-[#166534] border-[#bbf7d0]"
+                                      : ord.status === "completed"
+                                        ? "bg-gray-100 text-gray-700 border-gray-300"
+                                        : "bg-red-100 text-red-700 border-red-300"
+                              }`}
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="kitchen">In Kitchen</option>
+                              <option value="ready">Ready</option>
+                              <option value="completed">Completed</option>
+                              <option value="cancelled">Cancelled</option>
+                            </select>
+                            {(updatingOrderId === ord.id || updatingOrderId === ord.orderNumber) && (
+                              <div className="absolute right-1 size-3 border-2 border-current border-t-transparent rounded-full animate-spin pointer-events-none" />
+                            )}
+                          </div>
                       </div>
 
                       {/* Customer Info */}

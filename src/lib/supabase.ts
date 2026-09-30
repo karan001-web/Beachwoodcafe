@@ -261,6 +261,8 @@ export async function updateOrderStatusInSupabase(
   identifier: string,
   status: OrderStatus,
   extra?: {
+    orderId?: string | undefined;
+    orderNumber?: string | undefined;
     statusUpdatedAt?: number | undefined;
     cancelledBy?: "customer" | "admin" | undefined;
     cancelledAt?: number | undefined;
@@ -269,7 +271,29 @@ export async function updateOrderStatusInSupabase(
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
-    const cleanNum = identifier.replace(/^#/, "").trim();
+    const terms = new Set<string>();
+    const addTerm = (val?: string) => {
+      if (!val) return;
+      const raw = String(val).trim();
+      if (!raw) return;
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    };
+
+    addTerm(identifier);
+    addTerm(extra?.orderId);
+    addTerm(extra?.orderNumber);
+
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `order_number.eq.${t}`);
+    }
+    const orFilter = filterParts.join(",");
+
     const updatePayload: Record<string, any> = {
       status,
       ["status_updated_at"]: extra?.statusUpdatedAt || Date.now(),
@@ -278,30 +302,56 @@ export async function updateOrderStatusInSupabase(
     if (extra?.cancelledAt) updatePayload["cancelled_at"] = extra.cancelledAt;
     if (extra?.cancellationReason) updatePayload["cancellation_reason"] = extra.cancellationReason;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("orders")
       .update(updatePayload)
-      .or(`id.eq.${cleanNum},order_number.eq.${cleanNum}`);
+      .or(orFilter)
+      .select();
 
     if (error) {
       console.warn("Supabase update order status error:", error.message);
       return false;
     }
-    return true;
+    return Boolean(data && data.length > 0);
   } catch (err) {
     console.warn("Supabase update order status failed:", err);
     return false;
   }
 }
 
-export async function deleteOrderFromSupabase(identifier: string): Promise<boolean> {
+export async function deleteOrderFromSupabase(
+  identifier: string,
+  extra?: { orderId?: string; orderNumber?: string }
+): Promise<boolean> {
   if (!supabase) return false;
   try {
-    const cleanNum = identifier.replace(/^#/, "").trim();
+    const terms = new Set<string>();
+    const addTerm = (val?: string) => {
+      if (!val) return;
+      const raw = String(val).trim();
+      if (!raw) return;
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    };
+
+    addTerm(identifier);
+    addTerm(extra?.orderId);
+    addTerm(extra?.orderNumber);
+
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `order_number.eq.${t}`);
+    }
+    const orFilter = filterParts.join(",");
+
     const { error } = await supabase
       .from("orders")
       .delete()
-      .or(`id.eq.${cleanNum},order_number.eq.${cleanNum}`);
+      .or(orFilter);
 
     if (error) {
       console.warn("Supabase delete order error:", error.message);
@@ -352,15 +402,38 @@ export async function upsertReservationToSupabase(res: AdminReservation): Promis
 
 export async function updateReservationStatusInSupabase(
   identifier: string,
-  status: ReservationStatus
+  status: ReservationStatus,
+  extra?: { resId?: string; reservationNumber?: string }
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
-    const cleanNum = identifier.replace(/^#/, "").trim();
+    const terms = new Set<string>();
+    const addTerm = (val?: string) => {
+      if (!val) return;
+      const raw = String(val).trim();
+      if (!raw) return;
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    };
+
+    addTerm(identifier);
+    addTerm(extra?.resId);
+    addTerm(extra?.reservationNumber);
+
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `reservation_number.eq.${t}`);
+    }
+    const orFilter = filterParts.join(",");
+
     const { error } = await supabase
       .from("reservations")
       .update({ status })
-      .or(`id.eq.${cleanNum},reservation_number.eq.${cleanNum}`);
+      .or(orFilter);
 
     if (error) {
       console.warn("Supabase update reservation status error:", error.message);
@@ -373,14 +446,39 @@ export async function updateReservationStatusInSupabase(
   }
 }
 
-export async function deleteReservationFromSupabase(identifier: string): Promise<boolean> {
+export async function deleteReservationFromSupabase(
+  identifier: string,
+  extra?: { resId?: string; reservationNumber?: string }
+): Promise<boolean> {
   if (!supabase) return false;
   try {
-    const cleanNum = identifier.replace(/^#/, "").trim();
+    const terms = new Set<string>();
+    const addTerm = (val?: string) => {
+      if (!val) return;
+      const raw = String(val).trim();
+      if (!raw) return;
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    };
+
+    addTerm(identifier);
+    addTerm(extra?.resId);
+    addTerm(extra?.reservationNumber);
+
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `reservation_number.eq.${t}`);
+    }
+    const orFilter = filterParts.join(",");
+
     const { error } = await supabase
       .from("reservations")
       .delete()
-      .or(`id.eq.${cleanNum},reservation_number.eq.${cleanNum}`);
+      .or(orFilter);
 
     if (error) {
       console.warn("Supabase delete reservation error:", error.message);

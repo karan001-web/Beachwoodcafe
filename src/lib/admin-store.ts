@@ -246,6 +246,33 @@ function safeSetJSON(key: string, data: unknown) {
   }
 }
 
+// Status Locks: Prevents background sync / realtime from rolling back a recently updated order status
+interface StatusLock {
+  status: OrderStatus;
+  timestamp: number;
+}
+const recentOrderStatusLocks = new Map<string, StatusLock>();
+
+export function recordOrderStatusLock(identifier: string, status: OrderStatus) {
+  const clean = String(identifier || "").trim().toLowerCase().replace(/^#/, "");
+  if (clean) {
+    recentOrderStatusLocks.set(clean, { status, timestamp: Date.now() });
+  }
+}
+
+export function getOrderStatusLock(identifier?: string): StatusLock | undefined {
+  if (!identifier) return undefined;
+  const clean = String(identifier || "").trim().toLowerCase().replace(/^#/, "");
+  if (!clean) return undefined;
+  const lock = recentOrderStatusLocks.get(clean);
+  if (!lock) return undefined;
+  if (Date.now() - lock.timestamp > 15000) {
+    recentOrderStatusLocks.delete(clean);
+    return undefined;
+  }
+  return lock;
+}
+
 // ============================================================================
 // CROSS-TAB & CROSS-DEVICE CLOUD REAL-TIME PUB/SUB RELAY
 // ============================================================================
@@ -489,12 +516,16 @@ export const adminStore = {
     return newOrder;
   },
 
-  updateOrderStatus(orderId: string, status: OrderStatus, orderNumber?: string): boolean {
+  async updateOrderStatus(
+    orderId: string,
+    status: OrderStatus,
+    orderNumber?: string
+  ): Promise<boolean> {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
     const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
     const cleanNum = orderNumber ? String(orderNumber).trim().toLowerCase().replace(/^#/, "") : "";
 
-    const idx = orders.findIndex((o) => {
+    let idx = orders.findIndex((o) => {
       const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
       const oId = (o.id || "").trim().toLowerCase();
       // Match by exact orderNumber first
@@ -503,9 +534,35 @@ export const adminStore = {
       if (cleanId && oId === cleanId) return true;
       return false;
     });
-    if (idx === -1 || !orders[idx]) return false;
 
     const now = Date.now();
+
+    if (idx === -1) {
+      const newOrd: AdminOrder = {
+        id: orderId || `ord_${now}_${Math.random().toString(36).substring(2, 7)}`,
+        orderNumber: orderNumber || (cleanNum ? `#${cleanNum}` : `#BWC-${Math.floor(10000 + Math.random() * 90000)}`),
+        placedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timestamp: now,
+        customerName: "Customer",
+        customerPhone: "",
+        customerEmail: "",
+        fulfilmentType: "pickup",
+        includeUtensils: true,
+        paymentMethod: "counter",
+        items: [],
+        subtotal: 0,
+        discountAmount: 0,
+        tax: 0,
+        deliveryFee: 0,
+        tipAmount: 0,
+        grandTotal: 0,
+        status,
+        statusUpdatedAt: now,
+      };
+      orders.unshift(newOrd);
+      idx = 0;
+    }
+
     orders[idx]!.status = status;
     orders[idx]!.statusUpdatedAt = now;
     if (status === "cancelled" && !orders[idx]!.cancelledBy) {
@@ -515,6 +572,12 @@ export const adminStore = {
     }
 
     safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+
+    // Apply 15-second status lock to block premature server polling rollbacks
+    if (orders[idx]!.orderNumber) recordOrderStatusLock(orders[idx]!.orderNumber, status);
+    if (orders[idx]!.id) recordOrderStatusLock(orders[idx]!.id, status);
+    if (orderNumber) recordOrderStatusLock(orderNumber, status);
+    if (orderId) recordOrderStatusLock(orderId, status);
 
     if (typeof window !== "undefined") {
       const payload = {
@@ -534,7 +597,23 @@ export const adminStore = {
         })
       );
 
-      // Background sync to server
+      // Sync to Supabase directly with full ID matching and await
+      if (isSupabaseConfigured()) {
+        try {
+          await updateOrderStatusInSupabase(orders[idx]!.orderNumber, status, {
+            orderId: orders[idx]!.id,
+            orderNumber: orders[idx]!.orderNumber,
+            statusUpdatedAt: now,
+            cancelledBy: orders[idx]!.cancelledBy,
+            cancelledAt: orders[idx]!.cancelledAt,
+            cancellationReason: orders[idx]!.cancellationReason,
+          });
+        } catch (err) {
+          console.warn("Supabase status sync error:", err);
+        }
+      }
+
+      // Background sync to serverless cache
       fetch("/api/orders/update-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -547,14 +626,6 @@ export const adminStore = {
           cancellationReason: orders[idx]!.cancellationReason,
         }),
       }).catch((err) => console.warn("Background status sync to server:", err));
-
-      if (isSupabaseConfigured()) {
-        updateOrderStatusInSupabase(orders[idx]!.orderNumber, status, {
-          statusUpdatedAt: now,
-          cancelledBy: orders[idx]!.cancelledBy,
-          cancellationReason: orders[idx]!.cancellationReason,
-        }).catch((err) => console.warn("Background Supabase status sync:", err));
-      }
     }
 
     return true;
@@ -954,7 +1025,7 @@ export const adminStore = {
     return newRes;
   },
 
-  updateReservationStatus(resId: string, status: ReservationStatus): boolean {
+  async updateReservationStatus(resId: string, status: ReservationStatus): Promise<boolean> {
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
     const cleanId = String(resId || "").trim().toLowerCase().replace(/^#/, "");
     const idx = reservations.findIndex(
@@ -984,6 +1055,17 @@ export const adminStore = {
         })
       );
 
+      if (isSupabaseConfigured()) {
+        try {
+          await updateReservationStatusInSupabase(reservations[idx]!.reservationNumber, status, {
+            resId: reservations[idx]!.id,
+            reservationNumber: reservations[idx]!.reservationNumber,
+          });
+        } catch (err) {
+          console.warn("Background Supabase reservation status sync:", err);
+        }
+      }
+
       // Background sync to server
       fetch("/api/reservations/update-status", {
         method: "POST",
@@ -994,12 +1076,6 @@ export const adminStore = {
           status,
         }),
       }).catch((err) => console.warn("Background status sync to server:", err));
-
-      if (isSupabaseConfigured()) {
-        updateReservationStatusInSupabase(reservations[idx]!.reservationNumber, status).catch(
-          (err) => console.warn("Background Supabase reservation status sync:", err)
-        );
-      }
     }
 
     return true;
@@ -1772,52 +1848,66 @@ export const adminStore = {
       const localOrders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const localReservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
 
-      // 1. Fetch remote orders and reservations from server
-      const res = await fetch("/api/sync", { cache: "no-store" });
-      if (!res.ok)
-        return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
-      const data = await res.json();
-      if (!data?.success)
-        return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
+      // 1. Fetch remote orders and reservations from server and Supabase in parallel
+      const [resData, sbOrders, sbReservations] = await Promise.all([
+        fetch("/api/sync", { cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        isSupabaseConfigured() ? fetchOrdersFromSupabase() : Promise.resolve([]),
+        isSupabaseConfigured() ? fetchReservationsFromSupabase() : Promise.resolve([]),
+      ]);
 
-      const remoteOrders: AdminOrder[] = Array.isArray(data.orders) ? data.orders : [];
-      const remoteReservations: AdminReservation[] = Array.isArray(data.reservations)
-        ? data.reservations
-        : [];
+      const remoteOrders: AdminOrder[] = [];
+      const remoteReservations: AdminReservation[] = [];
 
-      // Merge from Supabase if configured
-      if (isSupabaseConfigured()) {
-        try {
-          const [sbOrders, sbReservations] = await Promise.all([
-            fetchOrdersFromSupabase(),
-            fetchReservationsFromSupabase(),
-          ]);
-          for (const so of sbOrders) {
-            if (!so) continue;
-            const soNum = String(so.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-            const exists = remoteOrders.some((ro) => {
-              if (!ro) return false;
-              const roNum = String(ro.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-              return (roNum && soNum && roNum === soNum) || (ro.id && so.id && ro.id === so.id);
-            });
-            if (!exists) {
-              remoteOrders.push(so);
+      // Add Supabase orders first (authoritative persistent cloud database)
+      for (const so of sbOrders) {
+        if (so) remoteOrders.push(so);
+      }
+
+      // Merge server cache orders
+      if (resData?.orders && Array.isArray(resData.orders)) {
+        for (const ro of resData.orders) {
+          if (!ro) continue;
+          const roNum = String(ro.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+          const roId = String(ro.id || "").trim().toLowerCase();
+          const existingIdx = remoteOrders.findIndex((o) => {
+            const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+            const oId = String(o.id || "").trim().toLowerCase();
+            return (roNum && oNum && roNum === oNum) || (roId && oId && roId === oId);
+          });
+          if (existingIdx === -1) {
+            remoteOrders.push(ro);
+          } else {
+            const cur = remoteOrders[existingIdx]!;
+            const curUpdated = cur.statusUpdatedAt || cur.timestamp || 0;
+            const roUpdated = ro.statusUpdatedAt || ro.timestamp || 0;
+            if (roUpdated > curUpdated) {
+              remoteOrders[existingIdx] = { ...cur, ...ro };
             }
           }
-          for (const sr of sbReservations) {
-            if (!sr) continue;
-            const srNum = String(sr.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
-            const exists = remoteReservations.some((rr) => {
-              if (!rr) return false;
-              const rrNum = String(rr.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
-              return (rrNum && srNum && rrNum === srNum) || (rr.id && sr.id && rr.id === sr.id);
-            });
-            if (!exists) {
-              remoteReservations.push(sr);
-            }
+        }
+      }
+
+      // Add Supabase reservations first
+      for (const sr of sbReservations) {
+        if (sr) remoteReservations.push(sr);
+      }
+
+      // Merge server cache reservations
+      if (resData?.reservations && Array.isArray(resData.reservations)) {
+        for (const rr of resData.reservations) {
+          if (!rr) continue;
+          const rrNum = String(rr.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+          const rrId = String(rr.id || "").trim().toLowerCase();
+          const existingIdx = remoteReservations.findIndex((r) => {
+            const rNum = String(r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+            const rId = String(r.id || "").trim().toLowerCase();
+            return (rrNum && rNum && rrNum === rNum) || (rrId && rId && rrId === rId);
+          });
+          if (existingIdx === -1) {
+            remoteReservations.push(rr);
           }
-        } catch (e) {
-          console.warn("Supabase fetch during syncWithServer:", e);
         }
       }
 
@@ -1878,12 +1968,28 @@ export const adminStore = {
         } else {
           const current = mergedOrders[existingIdx];
           if (current) {
+            const lock =
+              getOrderStatusLock(current.orderNumber) ||
+              getOrderStatusLock(current.id) ||
+              getOrderStatusLock(remote.orderNumber) ||
+              getOrderStatusLock(remote.id);
+
             const currentUpdated = current.statusUpdatedAt || current.timestamp || 0;
             const remoteUpdated = remote.statusUpdatedAt || remote.timestamp || 0;
-            // Prevent stale server response from downgrading a more recently updated local status
-            const isLocalMoreRecent = currentUpdated > remoteUpdated;
-            const targetStatus = isLocalMoreRecent ? current.status : (remote.status || current.status);
-            const targetStatusUpdatedAt = Math.max(currentUpdated, remoteUpdated);
+
+            let targetStatus: OrderStatus = current.status;
+            let targetStatusUpdatedAt = currentUpdated;
+
+            if (lock) {
+              targetStatus = lock.status;
+              targetStatusUpdatedAt = Math.max(currentUpdated, lock.timestamp);
+            } else if (remoteUpdated > currentUpdated) {
+              targetStatus = remote.status || current.status;
+              targetStatusUpdatedAt = remoteUpdated;
+            } else {
+              targetStatus = current.status;
+              targetStatusUpdatedAt = currentUpdated;
+            }
 
             if (
               targetStatus !== current.status ||
@@ -2324,15 +2430,38 @@ export function initSupabaseSync() {
           return (oNum && targetNum && oNum === targetNum) || (o.id && order.id && o.id === order.id);
         });
         if (idx !== -1) {
-          orders[idx] = { ...orders[idx], ...order };
+          const current = orders[idx]!;
+          const lock =
+            getOrderStatusLock(order.orderNumber) ||
+            getOrderStatusLock(order.id) ||
+            getOrderStatusLock(current.orderNumber) ||
+            getOrderStatusLock(current.id);
+
+          const currentUpdated = current.statusUpdatedAt || current.timestamp || 0;
+          const incomingUpdated = order.statusUpdatedAt || order.timestamp || 0;
+
+          // If recently updated locally within 15-second grace window, do not revert to older status
+          if (lock && order.status !== lock.status) {
+            return;
+          }
+          if (incomingUpdated < currentUpdated && order.status !== current.status) {
+            return;
+          }
+
+          orders[idx] = {
+            ...current,
+            ...order,
+            status: lock ? lock.status : order.status,
+            statusUpdatedAt: Math.max(currentUpdated, incomingUpdated, lock?.timestamp || 0),
+          };
           safeSetJSON(STORAGE_KEYS.ORDERS, orders);
           window.dispatchEvent(
             new CustomEvent("bwc_order_change", {
               detail: {
-                orderNumber: order.orderNumber,
-                action: order.status === "cancelled" ? "cancel" : "status_update",
-                status: order.status,
-                order,
+                orderNumber: orders[idx]!.orderNumber,
+                action: orders[idx]!.status === "cancelled" ? "cancel" : "status_update",
+                status: orders[idx]!.status,
+                order: orders[idx],
               },
             })
           );

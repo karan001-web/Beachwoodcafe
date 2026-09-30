@@ -218,9 +218,22 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             { status: 200, headers: corsHeaders }
           );
         }
+
+        // If order wasn't in ephemeral memory, create an entry so future /api/sync returns it
+        const newOrd: StoredOrder = {
+          id: orderId || `ord_${Date.now()}`,
+          orderNumber: orderNumber || cleanNum || "",
+          timestamp: Date.now(),
+          status,
+          statusUpdatedAt: statusUpdatedAt || Date.now(),
+          cancelledBy: status === "cancelled" ? (cancelledBy || "admin") : undefined,
+          cancelledAt: status === "cancelled" ? Date.now() : undefined,
+          cancellationReason,
+        };
+        serverOrders.unshift(newOrd);
         return new Response(
-          JSON.stringify({ success: false, message: "Order not found" }),
-          { status: 404, headers: corsHeaders }
+          JSON.stringify({ success: true, order: newOrd, created: true }),
+          { status: 200, headers: corsHeaders }
         );
       } catch (err: any) {
         return new Response(

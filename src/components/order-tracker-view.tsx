@@ -352,10 +352,11 @@ export function OrderTrackerView({
     }
 
     setStatusUpdating(newStatus);
-    const updatedOrder: AdminOrder = { ...selectedOrder, status: newStatus };
+    const now = Date.now();
+    const updatedOrder: AdminOrder = { ...selectedOrder, status: newStatus, statusUpdatedAt: now };
     setSelectedOrder(updatedOrder);
 
-    adminStore.updateOrderStatus(selectedOrder.id, newStatus, selectedOrder.orderNumber);
+    await adminStore.updateOrderStatus(selectedOrder.id, newStatus, selectedOrder.orderNumber);
 
     try {
       await fetch("/api/orders/update-status", {
@@ -365,6 +366,7 @@ export function OrderTrackerView({
           orderId: selectedOrder.id,
           orderNumber: selectedOrder.orderNumber,
           status: newStatus,
+          statusUpdatedAt: now,
         }),
       });
     } catch (e) {
