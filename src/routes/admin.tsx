@@ -545,7 +545,7 @@ export function AdminPage() {
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Refresh data from storage and sync with server
-  const loadData = () => {
+  const loadData = (triggerSync = true) => {
     setOrders(adminStore.getOrders());
     setReservations(adminStore.getReservations());
     setVisitorAnalytics(adminStore.getVisitorAnalytics());
@@ -559,7 +559,9 @@ export function AdminPage() {
     setCustomMaintenanceMsg(m.message);
 
     // Background server sync for cross-device & mobile orders
-    adminStore.syncWithServer().catch(() => {});
+    if (triggerSync) {
+      adminStore.syncWithServer().catch(() => {});
+    }
   };
 
   const handleManualSync = async () => {
@@ -736,11 +738,11 @@ export function AdminPage() {
   };
 
   // Delete Order
-  const handleDeleteOrder = (orderId: string, orderNumber?: string) => {
+  const handleDeleteOrder = async (orderId: string, orderNumber?: string) => {
     const label = orderNumber ? `#${orderNumber}` : "this order";
     if (window.confirm(`Permanently delete order ${label}?`)) {
-      adminStore.deleteOrder(orderId, orderNumber);
-      loadData();
+      await adminStore.deleteOrder(orderId, orderNumber);
+      loadData(false);
       if (
         selectedOrder &&
         (selectedOrder.id === orderId ||
@@ -770,11 +772,11 @@ export function AdminPage() {
   };
 
   // Delete Reservation
-  const handleDeleteRes = (resId: string, reservationNumber?: string) => {
+  const handleDeleteRes = async (resId: string, reservationNumber?: string) => {
     const label = reservationNumber ? `#${reservationNumber}` : "this booking";
     if (window.confirm(`Permanently delete reservation ${label}?`)) {
-      adminStore.deleteReservation(resId, reservationNumber);
-      loadData();
+      await adminStore.deleteReservation(resId, reservationNumber);
+      loadData(false);
       showNotification(`Reservation ${label} record deleted.`);
     }
   };

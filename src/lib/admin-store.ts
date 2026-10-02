@@ -1006,7 +1006,7 @@ export const adminStore = {
     }
   },
 
-  deleteOrder(orderId: string, orderNumber?: string): boolean {
+  async deleteOrder(orderId: string, orderNumber?: string): Promise<boolean> {
     const cleanId = orderId ? String(orderId).trim().toLowerCase() : "";
     const cleanNum = orderNumber ? String(orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
 
@@ -1057,14 +1057,17 @@ export const adminStore = {
       body: JSON.stringify({ orderId, orderNumber }),
     }).catch(() => {});
 
+    // 5. Delete from Supabase cloud database (AWAITED to prevent race condition with sync)
     if (isSupabaseConfigured()) {
-      deleteOrderFromSupabase(cleanNum || cleanId, { orderId, orderNumber }).catch((err) =>
-        console.warn("Background Supabase order delete:", err),
-      );
+      try {
+        await deleteOrderFromSupabase(cleanNum || cleanId, { orderId, orderNumber });
+      } catch (err) {
+        console.warn("Background Supabase order delete:", err);
+      }
       broadcastDeleteViaSupabase("order", orderId, orderNumber);
     }
 
-    // 5. Broadcast to other tabs & devices
+    // 6. Broadcast to other tabs & devices
     broadcastEvent("order_delete", { orderId, orderNumber, action: "delete" });
 
     if (typeof window !== "undefined") {
@@ -1203,7 +1206,7 @@ export const adminStore = {
     return true;
   },
 
-  deleteReservation(resId: string, reservationNumber?: string): boolean {
+  async deleteReservation(resId: string, reservationNumber?: string): Promise<boolean> {
     const cleanId = resId ? String(resId).trim().toLowerCase() : "";
     const cleanNum = reservationNumber
       ? String(reservationNumber).replace(/^#/, "").trim().toLowerCase()
@@ -1236,14 +1239,17 @@ export const adminStore = {
       body: JSON.stringify({ resId, reservationNumber }),
     }).catch(() => {});
 
+    // 4. Delete from Supabase cloud database (AWAITED to prevent race condition)
     if (isSupabaseConfigured()) {
-      deleteReservationFromSupabase(cleanNum || cleanId, { resId, reservationNumber }).catch((err) =>
-        console.warn("Background Supabase reservation delete:", err),
-      );
+      try {
+        await deleteReservationFromSupabase(cleanNum || cleanId, { resId, reservationNumber });
+      } catch (err) {
+        console.warn("Background Supabase reservation delete:", err);
+      }
       broadcastDeleteViaSupabase("reservation", resId, reservationNumber);
     }
 
-    // 4. Broadcast
+    // 5. Broadcast
     broadcastEvent("reservation_delete", { resId, reservationNumber, action: "delete" });
 
     if (typeof window !== "undefined") {
@@ -2066,21 +2072,26 @@ export const adminStore = {
           ? parseInt(localStorage.getItem(STORAGE_KEYS.DATA_CLEARED_AT) || "0", 10)
           : 0;
 
+      let hasOrderDeletions = false;
+      let hasResDeletions = false;
+
       // Reconcile deletions from authoritative Supabase cloud database:
       // If an order/reservation exists locally on this device (placed earlier), but has been deleted from Supabase,
-      // purge it from local memory, customer history, and active tracker view.
+      // purge it immediately from local memory, customer history, and active tracker view.
       if (isSupabaseConfigured() && Array.isArray(sbOrders)) {
-        const remoteOrderKeys = new Set<string>();
-        for (const ro of remoteOrders) {
-          if (!ro) continue;
-          if (ro.id) remoteOrderKeys.add(String(ro.id).trim().toLowerCase());
-          if (ro.orderNumber) {
-            const clean = String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase();
-            if (clean) remoteOrderKeys.add(clean);
+        const supabaseOrderKeys = new Set<string>();
+        for (const so of sbOrders) {
+          if (!so) continue;
+          if (so.id) supabaseOrderKeys.add(String(so.id).trim().toLowerCase());
+          if (so.orderNumber) {
+            const clean = String(so.orderNumber).replace(/^#/, "").trim().toLowerCase();
+            if (clean) {
+              supabaseOrderKeys.add(clean);
+              supabaseOrderKeys.add(`#${clean}`);
+            }
           }
         }
 
-        const now = Date.now();
         const survivingOrders: AdminOrder[] = [];
         const deletedCustomerIds = new Set<string>();
 
@@ -2090,15 +2101,15 @@ export const adminStore = {
           const locNum = loc.orderNumber
             ? String(loc.orderNumber).replace(/^#/, "").trim().toLowerCase()
             : "";
-          const locAge = now - (loc.timestamp || 0);
 
           const existsRemotely =
-            (locId && remoteOrderKeys.has(locId)) || (locNum && remoteOrderKeys.has(locNum));
-          // Keep if it exists remotely or was placed within last 30s (in-flight checkout)
-          if (existsRemotely || locAge < 30000) {
+            (locId && supabaseOrderKeys.has(locId)) || (locNum && supabaseOrderKeys.has(locNum));
+
+          if (existsRemotely) {
             survivingOrders.push(loc);
           } else {
-            // It was deleted on Supabase / Admin portal!
+            // It does not exist in Supabase! It was deleted!
+            hasOrderDeletions = true;
             if (locId && !deletedOrderIds.includes(locId)) deletedOrderIds.push(locId);
             if (locNum && !deletedOrderIds.includes(locNum)) deletedOrderIds.push(locNum);
             if (locId) deletedCustomerIds.add(locId);
@@ -2110,6 +2121,12 @@ export const adminStore = {
               }),
             );
           }
+        }
+
+        if (hasOrderDeletions) {
+          safeSetJSON(STORAGE_KEYS.ORDERS, survivingOrders);
+          localOrders.length = 0;
+          localOrders.push(...survivingOrders);
         }
 
         if (deletedCustomerIds.size > 0) {
@@ -2130,24 +2147,23 @@ export const adminStore = {
         }
 
         safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deletedOrderIds.slice(-200));
-        localOrders.length = 0;
-        localOrders.push(...survivingOrders);
       }
 
       if (isSupabaseConfigured() && Array.isArray(sbReservations)) {
-        const remoteResKeys = new Set<string>();
-        for (const rr of remoteReservations) {
-          if (!rr) continue;
-          if (rr.id) remoteResKeys.add(String(rr.id).trim().toLowerCase());
-          if (rr.reservationNumber) {
-            const clean = String(rr.reservationNumber).replace(/^#/, "").trim().toLowerCase();
-            if (clean) remoteResKeys.add(clean);
+        const supabaseResKeys = new Set<string>();
+        for (const sr of sbReservations) {
+          if (!sr) continue;
+          if (sr.id) supabaseResKeys.add(String(sr.id).trim().toLowerCase());
+          if (sr.reservationNumber) {
+            const clean = String(sr.reservationNumber).replace(/^#/, "").trim().toLowerCase();
+            if (clean) {
+              supabaseResKeys.add(clean);
+              supabaseResKeys.add(`#${clean}`);
+            }
           }
         }
 
-        const now = Date.now();
         const survivingRes: AdminReservation[] = [];
-        const deletedCustomerResIds = new Set<string>();
 
         for (const loc of localReservations) {
           if (!loc) continue;
@@ -2155,17 +2171,16 @@ export const adminStore = {
           const locNum = loc.reservationNumber
             ? String(loc.reservationNumber).replace(/^#/, "").trim().toLowerCase()
             : "";
-          const locAge = now - (loc.timestamp || 0);
 
           const existsRemotely =
-            (locId && remoteResKeys.has(locId)) || (locNum && remoteResKeys.has(locNum));
-          if (existsRemotely || locAge < 30000) {
+            (locId && supabaseResKeys.has(locId)) || (locNum && supabaseResKeys.has(locNum));
+
+          if (existsRemotely) {
             survivingRes.push(loc);
           } else {
+            hasResDeletions = true;
             if (locId && !deletedResIds.includes(locId)) deletedResIds.push(locId);
             if (locNum && !deletedResIds.includes(locNum)) deletedResIds.push(locNum);
-            if (locId) deletedCustomerResIds.add(locId);
-            if (locNum) deletedCustomerResIds.add(locNum);
 
             window.dispatchEvent(
               new CustomEvent("bwc_reservation_change", {
@@ -2179,9 +2194,13 @@ export const adminStore = {
           }
         }
 
+        if (hasResDeletions) {
+          safeSetJSON(STORAGE_KEYS.RESERVATIONS, survivingRes);
+          localReservations.length = 0;
+          localReservations.push(...survivingRes);
+        }
+
         safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, deletedResIds.slice(-200));
-        localReservations.length = 0;
-        localReservations.push(...survivingRes);
       }
 
       let newOrdersCount = 0;
@@ -2339,7 +2358,7 @@ export const adminStore = {
         }
       }
 
-      if (newOrdersCount > 0 || updatedOrdersCount > 0) {
+      if (newOrdersCount > 0 || updatedOrdersCount > 0 || hasOrderDeletions) {
         safeSetJSON(
           STORAGE_KEYS.ORDERS,
           mergedOrders.sort((a, b) => b.timestamp - a.timestamp),
@@ -2355,7 +2374,7 @@ export const adminStore = {
         );
       }
 
-      if (newReservationsCount > 0 || updatedReservationsCount > 0) {
+      if (newReservationsCount > 0 || updatedReservationsCount > 0 || hasResDeletions) {
         safeSetJSON(
           STORAGE_KEYS.RESERVATIONS,
           mergedReservations.sort((a, b) => b.timestamp - a.timestamp),
@@ -2371,34 +2390,37 @@ export const adminStore = {
         );
       }
 
-      // 2. Also ensure server has our local orders and reservations (push only truly missing items)
-      const unpushedOrders = localOrders.filter((lo) => {
-        if (!lo) return false;
-        const cleanLo = lo.orderNumber
-          ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase()
-          : "";
-        const cleanId = lo.id ? String(lo.id).trim().toLowerCase() : "";
-        if (cleanLo && deletedOrderIds.includes(cleanLo)) return false;
-        if (cleanId && deletedOrderIds.includes(cleanId)) return false;
-        if (clearedAt && lo.timestamp && lo.timestamp <= clearedAt) return false;
-        return !remoteOrders.some((ro) => {
-          if (!ro) return false;
-          const cleanRo = ro.orderNumber
-            ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase()
+      // 2. Only push unpushed orders to server if this device is authenticated ADMIN!
+      // Customer devices MUST NEVER re-push deleted or local-only orders back to server/database!
+      if (this.isAuthenticated()) {
+        const unpushedOrders = localOrders.filter((lo) => {
+          if (!lo) return false;
+          const cleanLo = lo.orderNumber
+            ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase()
             : "";
-          const cleanRoId = ro.id ? String(ro.id).trim().toLowerCase() : "";
-          if (cleanLo && cleanRo === cleanLo) return true;
-          if (cleanId && cleanRoId === cleanId) return true;
-          return false;
+          const cleanId = lo.id ? String(lo.id).trim().toLowerCase() : "";
+          if (cleanLo && deletedOrderIds.includes(cleanLo)) return false;
+          if (cleanId && deletedOrderIds.includes(cleanId)) return false;
+          if (clearedAt && lo.timestamp && lo.timestamp <= clearedAt) return false;
+          return !remoteOrders.some((ro) => {
+            if (!ro) return false;
+            const cleanRo = ro.orderNumber
+              ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase()
+              : "";
+            const cleanRoId = ro.id ? String(ro.id).trim().toLowerCase() : "";
+            if (cleanLo && cleanRo === cleanLo) return true;
+            if (cleanId && cleanRoId === cleanId) return true;
+            return false;
+          });
         });
-      });
 
-      if (unpushedOrders.length > 0) {
-        fetch("/api/orders", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orders: unpushedOrders }),
-        }).catch(() => {});
+        if (unpushedOrders.length > 0) {
+          fetch("/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orders: unpushedOrders }),
+          }).catch(() => {});
+        }
       }
 
       const unpushedReservations = localReservations.filter((lr) => {

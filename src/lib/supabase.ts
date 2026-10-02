@@ -227,8 +227,8 @@ export function rowToReservation(row: any): AdminReservation {
 // SUPABASE OPERATIONS WITH GRACEFUL FALLBACK
 // ============================================================================
 
-export async function fetchOrdersFromSupabase(): Promise<AdminOrder[]> {
-  if (!supabase) return [];
+export async function fetchOrdersFromSupabase(): Promise<AdminOrder[] | null> {
+  if (!supabase) return null;
   try {
     const { data, error } = await supabase
       .from("orders")
@@ -238,12 +238,12 @@ export async function fetchOrdersFromSupabase(): Promise<AdminOrder[]> {
 
     if (error) {
       console.warn("Supabase fetch orders error:", error.message);
-      return [];
+      return null;
     }
     return (data || []).map(rowToOrder);
   } catch (err) {
     console.warn("Supabase fetch orders failed:", err);
-    return [];
+    return null;
   }
 }
 
@@ -413,8 +413,8 @@ export async function deleteOrderFromSupabase(
   }
 }
 
-export async function fetchReservationsFromSupabase(): Promise<AdminReservation[]> {
-  if (!supabase) return [];
+export async function fetchReservationsFromSupabase(): Promise<AdminReservation[] | null> {
+  if (!supabase) return null;
   try {
     const { data, error } = await supabase
       .from("reservations")
@@ -424,12 +424,12 @@ export async function fetchReservationsFromSupabase(): Promise<AdminReservation[
 
     if (error) {
       console.warn("Supabase fetch reservations error:", error.message);
-      return [];
+      return null;
     }
     return (data || []).map(rowToReservation);
   } catch (err) {
     console.warn("Supabase fetch reservations failed:", err);
-    return [];
+    return null;
   }
 }
 
@@ -542,6 +542,8 @@ export async function deleteReservationFromSupabase(
 // REALTIME SUBSCRIPTIONS & BROADCAST
 // ============================================================================
 
+let activeRealtimeChannel: any = null;
+
 export function broadcastDeleteViaSupabase(
   type: "order" | "reservation",
   id?: string,
@@ -549,18 +551,23 @@ export function broadcastDeleteViaSupabase(
 ) {
   if (!supabase) return;
   try {
-    const channel = supabase.channel("beachwood-cafe-live-sync");
+    const channel = activeRealtimeChannel || supabase.channel("beachwood-cafe-live-sync");
+    if (!activeRealtimeChannel) {
+      activeRealtimeChannel = channel;
+      channel.subscribe();
+    }
+    const cleanNum = number ? String(number).replace(/^#/, "").trim() : undefined;
     if (type === "order") {
       channel.send({
         type: "broadcast",
         event: "order_deleted",
-        payload: { orderId: id, orderNumber: number },
+        payload: { orderId: id, orderNumber: cleanNum || number },
       });
     } else {
       channel.send({
         type: "broadcast",
         event: "reservation_deleted",
-        payload: { resId: id, reservationNumber: number },
+        payload: { resId: id, reservationNumber: cleanNum || number },
       });
     }
   } catch (err) {
@@ -637,12 +644,18 @@ export function subscribeToSupabaseRealtime(callbacks: {
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
+          activeRealtimeChannel = channel;
           console.log("⚡ Supabase Realtime connected for Beachwood Cafe!");
         }
       });
 
+    activeRealtimeChannel = channel;
+
     return () => {
       supabase?.removeChannel(channel);
+      if (activeRealtimeChannel === channel) {
+        activeRealtimeChannel = null;
+      }
     };
   } catch (err) {
     console.warn("Failed to subscribe to Supabase Realtime:", err);
