@@ -40,10 +40,12 @@ const formatMoney = (val: unknown): string => {
  * Builds a clean, compact, professional HTML receipt guaranteed to fit on a single page.
  */
 function buildReceiptHtml(order: PrintableReceiptOrder): string {
-  const currentDate = order.placedAt || new Date().toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const currentDate =
+    order.placedAt ||
+    new Date().toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
 
   const isDelivery = order.fulfilmentType === "delivery";
   const addressLine = isDelivery
@@ -60,9 +62,9 @@ function buildReceiptHtml(order: PrintableReceiptOrder): string {
           <div style="font-weight: 600; color: #111;">${item.name || "Item"}</div>
           ${item.unitPrice ? `<div style="font-size: 10px; color: #666;">$${formatMoney(item.unitPrice)} each</div>` : ""}
         </td>
-        <td style="padding: 4px 0; text-align: right; font-weight: 700; vertical-align: top; width: 65px;">$${formatMoney(item.total ?? (Number(item.unitPrice || 0) * Number(item.quantity || 1)))}</td>
+        <td style="padding: 4px 0; text-align: right; font-weight: 700; vertical-align: top; width: 65px;">$${formatMoney(item.total ?? Number(item.unitPrice || 0) * Number(item.quantity || 1))}</td>
       </tr>
-    `
+    `,
     )
     .join("");
 
@@ -292,33 +294,45 @@ function buildReceiptHtml(order: PrintableReceiptOrder): string {
         <td class="label">Phone:</td>
         <td class="val">${order.phone}</td>
       </tr>
-      ${order.email ? `
+      ${
+        order.email
+          ? `
       <tr>
         <td class="label">Email:</td>
         <td class="val">${order.email}</td>
       </tr>
-      ` : ""}
+      `
+          : ""
+      }
       <tr>
         <td class="label">${isDelivery ? "Deliver to:" : "Pickup at:"}</td>
         <td class="val" style="word-break: break-word;">${addressLine}</td>
       </tr>
-      ${order.estimatedTime ? `
+      ${
+        order.estimatedTime
+          ? `
       <tr>
         <td class="label">Est. Ready:</td>
         <td class="val" style="color: #b87508;">${order.estimatedTime}</td>
       </tr>
-      ` : ""}
+      `
+          : ""
+      }
       <tr>
         <td class="label">Utensils:</td>
         <td class="val">${order.includeUtensils !== false ? "Included (Eco-friendly)" : "No utensils needed"}</td>
       </tr>
     </table>
 
-    ${order.orderNote ? `
+    ${
+      order.orderNote
+        ? `
     <div class="note-box">
       <strong>Special Instructions:</strong> ${order.orderNote}
     </div>
-    ` : ""}
+    `
+        : ""
+    }
 
     <hr class="divider">
 
@@ -344,28 +358,40 @@ function buildReceiptHtml(order: PrintableReceiptOrder): string {
         <span>Subtotal</span>
         <span>$${formatMoney(order.subtotal)}</span>
       </div>
-      ${order.discountAmount && Number(order.discountAmount) > 0 ? `
+      ${
+        order.discountAmount && Number(order.discountAmount) > 0
+          ? `
       <div class="totals-row" style="color: #16a34a; font-weight: 600;">
         <span>Promo Discount</span>
         <span>-$${formatMoney(order.discountAmount)}</span>
       </div>
-      ` : ""}
+      `
+          : ""
+      }
       <div class="totals-row">
         <span>Sales Tax (9.5% LA)</span>
         <span>$${formatMoney(order.tax)}</span>
       </div>
-      ${order.deliveryFee && Number(order.deliveryFee) > 0 ? `
+      ${
+        order.deliveryFee && Number(order.deliveryFee) > 0
+          ? `
       <div class="totals-row">
         <span>Delivery Fee</span>
         <span>$${formatMoney(order.deliveryFee)}</span>
       </div>
-      ` : ""}
-      ${order.tipAmount && Number(order.tipAmount) > 0 ? `
+      `
+          : ""
+      }
+      ${
+        order.tipAmount && Number(order.tipAmount) > 0
+          ? `
       <div class="totals-row">
         <span>Staff Tip</span>
         <span>$${formatMoney(order.tipAmount)}</span>
       </div>
-      ` : ""}
+      `
+          : ""
+      }
       <div class="grand-total-row">
         <span>GRAND TOTAL</span>
         <span>$${formatMoney(order.grandTotal)}</span>
@@ -391,10 +417,12 @@ function buildReceiptHtml(order: PrintableReceiptOrder): string {
  * Builds a clean, high-contrast, single-page kitchen ticket for cafe staff.
  */
 function buildKitchenTicketHtml(order: PrintableReceiptOrder): string {
-  const currentDate = order.placedAt || new Date().toLocaleString("en-US", {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
+  const currentDate =
+    order.placedAt ||
+    new Date().toLocaleString("en-US", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
 
   const isDelivery = order.fulfilmentType === "delivery";
 
@@ -405,7 +433,7 @@ function buildKitchenTicketHtml(order: PrintableReceiptOrder): string {
         <span style="font-size: 18px; font-weight: 900; width: 40px;">${item.quantity}x</span>
         <span style="font-size: 16px; font-weight: 700; flex: 1;">${item.name}</span>
       </div>
-    `
+    `,
     )
     .join("");
 
@@ -479,7 +507,7 @@ function printHtmlInIframe(htmlContent: string) {
   iframe.id = "bwc-receipt-print-frame";
   iframe.setAttribute(
     "style",
-    "position: fixed; right: 100%; bottom: 100%; width: 0; height: 0; border: 0; opacity: 0; pointer-events: none; z-index: -9999;"
+    "position: fixed; right: 100%; bottom: 100%; width: 0; height: 0; border: 0; opacity: 0; pointer-events: none; z-index: -9999;",
   );
   iframe.setAttribute("aria-hidden", "true");
   document.body.appendChild(iframe);

@@ -457,7 +457,7 @@ function Index() {
 
   const toggleFaq = (id: number) => {
     setOpenFaqIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
     );
   };
 
@@ -491,7 +491,7 @@ function Index() {
   const safePageIndex = Math.min(reviewPageIndex, totalReviewPages - 1);
   const visibleReviews = filteredReviews.slice(
     safePageIndex * reviewsPerPage,
-    safePageIndex * reviewsPerPage + reviewsPerPage
+    safePageIndex * reviewsPerPage + reviewsPerPage,
   );
 
   const prevReviewPage = () => {
@@ -675,14 +675,15 @@ function Index() {
             <div className="max-w-3xl mx-auto px-2">
               <p className="font-serif text-lg sm:text-xl lg:text-[1.38rem] text-[#1a3b6b] leading-[1.8] sm:leading-[1.9] font-normal">
                 Nestled beneath the iconic{" "}
-                <span className="text-[#b87508] font-bold">Hollywood Sign</span>, Beachwood Cafe serves
-                thoughtfully crafted meals from morning to night in a vibrant, airy space. With a modern
-                American menu infused with{" "}
+                <span className="text-[#b87508] font-bold">Hollywood Sign</span>, Beachwood Cafe
+                serves thoughtfully crafted meals from morning to night in a vibrant, airy space.
+                With a modern American menu infused with{" "}
                 <span className="text-[#b87508] font-bold">
                   Asian, Scandinavian, and Mediterranean
                 </span>{" "}
-                influences, we offer everything from bold breakfast plates to refined evening entrees, always
-                with a touch of <span className="text-[#b87508] font-bold">California charm</span>.
+                influences, we offer everything from bold breakfast plates to refined evening
+                entrees, always with a touch of{" "}
+                <span className="text-[#b87508] font-bold">California charm</span>.
               </p>
             </div>
 
@@ -751,7 +752,8 @@ function Index() {
             </h2>
 
             <p className="mt-4 text-sm sm:text-base lg:text-[1.05rem] text-[#524c43] leading-relaxed max-w-2xl mx-auto font-sans">
-              Our menus evolve with the day, offering hearty breakfasts, fresh lunches, and indulgent dinners, each crafted to satisfy every craving from morning to night.
+              Our menus evolve with the day, offering hearty breakfasts, fresh lunches, and
+              indulgent dinners, each crafted to satisfy every craving from morning to night.
             </p>
           </div>
 
@@ -795,7 +797,8 @@ function Index() {
                       Tap for Recipe & Details
                     </span>
                     <span className="text-[0.72rem] sm:text-xs font-bold text-white flex items-center gap-1">
-                      Details <ArrowRight className="size-3 text-[#d99214] transition-transform group-hover:translate-x-0.5" />
+                      Details{" "}
+                      <ArrowRight className="size-3 text-[#d99214] transition-transform group-hover:translate-x-0.5" />
                     </span>
                   </div>
                 </div>
@@ -832,7 +835,8 @@ function Index() {
                       ))}
                     </div>
                     <span className="text-[0.72rem] font-bold uppercase tracking-wider text-[#1a3b6b] group-hover:text-[#b87508] transition-colors shrink-0 ml-2 flex items-center gap-1">
-                      Quick View <ArrowRight className="size-3 transition-transform group-hover:translate-x-1" />
+                      Quick View{" "}
+                      <ArrowRight className="size-3 transition-transform group-hover:translate-x-1" />
                     </span>
                   </div>
                 </div>
@@ -878,7 +882,8 @@ function Index() {
             </h2>
 
             <p className="text-sm sm:text-base text-[#555047] font-medium leading-relaxed max-w-2xl mx-auto">
-              From morning espresso after hiking the Hollywood sign trail to unhurried sunset dinners, here is what guests cherish most about our canyon sanctuary.
+              From morning espresso after hiking the Hollywood sign trail to unhurried sunset
+              dinners, here is what guests cherish most about our canyon sanctuary.
             </p>
           </div>
 
@@ -890,7 +895,9 @@ function Index() {
               </div>
               <div>
                 <div className="flex items-center justify-center sm:justify-start gap-2.5">
-                  <span className="font-display text-4xl sm:text-5xl font-bold text-[#191918]">4.6</span>
+                  <span className="font-display text-4xl sm:text-5xl font-bold text-[#191918]">
+                    4.6
+                  </span>
                   <div className="flex flex-col items-start text-left">
                     <div className="flex items-center gap-1 text-[#d99214]">
                       {[...Array(5)].map((_, i) => (
@@ -1160,7 +1167,8 @@ function Index() {
             </h2>
 
             <p className="text-xs sm:text-sm text-[#ede4d5]/80 font-light leading-relaxed max-w-2xl mx-auto">
-              Everything you need to know about our tables, canyon parking, dog-friendly patio, seasonal farm-to-table menu, and Hollywoodland village life.
+              Everything you need to know about our tables, canyon parking, dog-friendly patio,
+              seasonal farm-to-table menu, and Hollywoodland village life.
             </p>
           </div>
 
@@ -1248,7 +1256,8 @@ function Index() {
                 <HelpCircle className="size-8 text-[#e5a924]/60 mx-auto" />
                 <h4 className="text-base font-bold text-white">No matching questions found</h4>
                 <p className="text-xs text-[#ede4d5]/70 max-w-md mx-auto">
-                  We couldn't find any questions matching "{faqSearch}". Please clear your search or reach out directly to our concierge below.
+                  We couldn't find any questions matching "{faqSearch}". Please clear your search or
+                  reach out directly to our concierge below.
                 </p>
                 <button
                   type="button"
@@ -1391,7 +1400,8 @@ function Index() {
               Our Canyon Concierge is Here to Help
             </h3>
             <p className="text-xs sm:text-sm text-[#ede4d5]/75 font-light max-w-lg mx-auto leading-relaxed">
-              Whether you need special table arrangements, dietary consultations, or directions through Hollywoodland, we're just a call or message away.
+              Whether you need special table arrangements, dietary consultations, or directions
+              through Hollywoodland, we're just a call or message away.
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -1464,7 +1474,8 @@ function Index() {
               </h2>
 
               <p className="text-xs sm:text-sm text-[#ede4d5]/80 max-w-lg font-light leading-relaxed">
-                Great food, friendly faces, and a timeless neighborhood sanctuary nestled in the Hollywood Hills since 2012.
+                Great food, friendly faces, and a timeless neighborhood sanctuary nestled in the
+                Hollywood Hills since 2012.
               </p>
             </div>
 
@@ -1543,7 +1554,9 @@ function Index() {
                       EMAIL INQUIRIES
                     </span>
                   </div>
-                  <h4 className="text-[0.7rem] font-semibold text-white/70 uppercase tracking-wider">Direct Inbox</h4>
+                  <h4 className="text-[0.7rem] font-semibold text-white/70 uppercase tracking-wider">
+                    Direct Inbox
+                  </h4>
                   <a
                     href={site.gmailUrl}
                     target="_blank"
@@ -1592,7 +1605,9 @@ function Index() {
                       <span>Open Daily</span>
                     </div>
                   </div>
-                  <h4 className="text-[0.7rem] font-semibold text-white/70 uppercase tracking-wider">Hours of Service</h4>
+                  <h4 className="text-[0.7rem] font-semibold text-white/70 uppercase tracking-wider">
+                    Hours of Service
+                  </h4>
                   <div className="mt-2 space-y-1 text-xs text-[#ede4d5]/85 leading-relaxed font-medium">
                     <p className="flex justify-between">
                       <span className="text-white/60">Mon – Thu:</span>
@@ -1669,24 +1684,101 @@ function Index() {
                 {/* Stylized Architectural Canyon Map SVG Graphic */}
                 <div className="relative flex-1 w-full min-h-[200px] overflow-hidden bg-[#101724] flex items-center justify-center select-none">
                   {/* Map Grid and Topographic Roads Graphic */}
-                  <svg className="absolute inset-0 w-full h-full opacity-65" viewBox="0 0 400 225" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <svg
+                    className="absolute inset-0 w-full h-full opacity-65"
+                    viewBox="0 0 400 225"
+                    preserveAspectRatio="xMidYMid slice"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
                     {/* Topographic Elevation Contours */}
-                    <path d="M-20 50 C 60 90, 140 30, 240 70 C 340 120, 420 60, 450 100" stroke="#1f2c42" strokeWidth="1.5" strokeDasharray="3 3" />
-                    <path d="M-30 110 C 70 140, 160 80, 260 130 C 360 180, 430 120, 460 160" stroke="#1f2c42" strokeWidth="1.5" strokeDasharray="3 3" />
-                    <path d="M-10 170 C 90 200, 180 150, 280 180 C 380 220, 440 180, 460 210" stroke="#1f2c42" strokeWidth="1.5" strokeDasharray="3 3" />
+                    <path
+                      d="M-20 50 C 60 90, 140 30, 240 70 C 340 120, 420 60, 450 100"
+                      stroke="#1f2c42"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
+                    />
+                    <path
+                      d="M-30 110 C 70 140, 160 80, 260 130 C 360 180, 430 120, 460 160"
+                      stroke="#1f2c42"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
+                    />
+                    <path
+                      d="M-10 170 C 90 200, 180 150, 280 180 C 380 220, 440 180, 460 210"
+                      stroke="#1f2c42"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
+                    />
 
                     {/* Canyon Valley Main Roads */}
-                    <path d="M70 -20 Q 110 80, 200 112 T 310 250" stroke="#2a3b57" strokeWidth="7" strokeLinecap="round" />
-                    <path d="M70 -20 Q 110 80, 200 112 T 310 250" stroke="#d99214" strokeWidth="2.2" strokeOpacity="0.8" strokeLinecap="round" />
-                    <path d="M-20 70 Q 90 105, 200 112 T 420 90" stroke="#2a3b57" strokeWidth="5.5" strokeLinecap="round" />
-                    <path d="M-20 70 Q 90 105, 200 112 T 420 90" stroke="#ffffff" strokeWidth="1.5" strokeOpacity="0.5" strokeLinecap="round" />
+                    <path
+                      d="M70 -20 Q 110 80, 200 112 T 310 250"
+                      stroke="#2a3b57"
+                      strokeWidth="7"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M70 -20 Q 110 80, 200 112 T 310 250"
+                      stroke="#d99214"
+                      strokeWidth="2.2"
+                      strokeOpacity="0.8"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M-20 70 Q 90 105, 200 112 T 420 90"
+                      stroke="#2a3b57"
+                      strokeWidth="5.5"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M-20 70 Q 90 105, 200 112 T 420 90"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
+                      strokeOpacity="0.5"
+                      strokeLinecap="round"
+                    />
                     <path d="M200 112 L 200 240" stroke="#2a3b57" strokeWidth="4.5" />
-                    <path d="M200 112 L 200 240" stroke="#ffffff" strokeWidth="1.2" strokeOpacity="0.4" strokeDasharray="4 3" />
+                    <path
+                      d="M200 112 L 200 240"
+                      stroke="#ffffff"
+                      strokeWidth="1.2"
+                      strokeOpacity="0.4"
+                      strokeDasharray="4 3"
+                    />
 
                     {/* Street Labels */}
-                    <text x="75" y="40" fill="#ffffff" fillOpacity="0.4" fontSize="7.5" fontFamily="monospace" transform="rotate(35 75 40)">N BEACHWOOD DR</text>
-                    <text x="260" y="80" fill="#ffffff" fillOpacity="0.4" fontSize="7.5" fontFamily="monospace">BELDEN DR</text>
-                    <text x="135" y="195" fill="#ffffff" fillOpacity="0.4" fontSize="7.5" fontFamily="monospace">HOLLYWOODLAND</text>
+                    <text
+                      x="75"
+                      y="40"
+                      fill="#ffffff"
+                      fillOpacity="0.4"
+                      fontSize="7.5"
+                      fontFamily="monospace"
+                      transform="rotate(35 75 40)"
+                    >
+                      N BEACHWOOD DR
+                    </text>
+                    <text
+                      x="260"
+                      y="80"
+                      fill="#ffffff"
+                      fillOpacity="0.4"
+                      fontSize="7.5"
+                      fontFamily="monospace"
+                    >
+                      BELDEN DR
+                    </text>
+                    <text
+                      x="135"
+                      y="195"
+                      fill="#ffffff"
+                      fillOpacity="0.4"
+                      fontSize="7.5"
+                      fontFamily="monospace"
+                    >
+                      HOLLYWOODLAND
+                    </text>
                   </svg>
 
                   {/* Concentric Animated Radar Ping Waves from Cafe Location */}
@@ -1761,10 +1853,14 @@ function Index() {
               </div>
 
               <p className="text-xs font-light text-[#ede4d5]/85 leading-relaxed max-w-lg mx-auto">
-                Receive seasonal menu debuts, holiday service hours, and neighborhood stories directly in your inbox.
+                Receive seasonal menu debuts, holiday service hours, and neighborhood stories
+                directly in your inbox.
               </p>
 
-              <form onSubmit={handleNewsletterSubmit} className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto pt-1">
+              <form
+                onSubmit={handleNewsletterSubmit}
+                className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto pt-1"
+              >
                 <input
                   type="email"
                   required
@@ -1792,7 +1888,6 @@ function Index() {
           </div>
         </div>
       </section>
-
 
       {/* Dish Modal */}
       <DishModal dish={selectedDish} onClose={() => setSelectedDish(null)} />

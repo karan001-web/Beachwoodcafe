@@ -51,8 +51,8 @@ export function MenuPage() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedDish, setSelectedDish] = useState<FeaturedDish | null>(null);
   const [isOrderOpen, setIsOrderOpen] = useState<boolean>(false);
-  const { addToCart, updateQuantity, getItemQuantity, totalCount, subtotal, setIsCartOpen } = useCart();
-
+  const { addToCart, updateQuantity, getItemQuantity, totalCount, subtotal, setIsCartOpen } =
+    useCart();
 
   // Filter menu sections and items dynamically based on search and dietary filter
   const filteredSections = useMemo(() => {
@@ -67,9 +67,7 @@ export function MenuPage() {
                 const query = searchQuery.toLowerCase();
                 const nameMatch = item.name.toLowerCase().includes(query);
                 const descMatch = item.description?.toLowerCase().includes(query);
-                const ingMatch = item.ingredients?.some((ing) =>
-                  ing.toLowerCase().includes(query)
-                );
+                const ingMatch = item.ingredients?.some((ing) => ing.toLowerCase().includes(query));
                 const tagMatch = item.tags?.some((tag) => tag.toLowerCase().includes(query));
                 if (!nameMatch && !descMatch && !ingMatch && !tagMatch) {
                   return false;
@@ -78,7 +76,12 @@ export function MenuPage() {
 
               // Dietary filter check
               if (dietaryFilter === "featured") {
-                return !!item.featured || item.tags?.includes("House Favorite") || item.tags?.includes("Best Seller") || item.tags?.includes("Chef Choice");
+                return (
+                  !!item.featured ||
+                  item.tags?.includes("House Favorite") ||
+                  item.tags?.includes("Best Seller") ||
+                  item.tags?.includes("Chef Choice")
+                );
               }
               if (dietaryFilter === "vegetarian") {
                 return (
@@ -115,7 +118,7 @@ export function MenuPage() {
   const totalMatchingItems = useMemo(() => {
     return filteredSections.reduce(
       (acc, sec) => acc + sec.groups.reduce((gAcc, grp) => gAcc + grp.items.length, 0),
-      0
+      0,
     );
   }, [filteredSections]);
 
@@ -149,8 +152,6 @@ export function MenuPage() {
 
   return (
     <div className="bg-[#ede4d5] text-[#191918] min-h-screen">
-
-
       {/* ========================================================================= */}
       {/* 3. STICKY CATEGORY NAV & REAL-TIME FILTERS */}
       {/* ========================================================================= */}
@@ -234,24 +235,35 @@ export function MenuPage() {
               </button>
             </div>
 
-            {/* Search Input */}
-            <div className="relative w-full sm:w-64 md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[#767064]" />
-              <input
-                type="text"
-                placeholder="Search dish, ingredients..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-8 py-1.5 text-xs bg-white/80 border border-[#1a3b6b]/20 rounded-full focus:outline-none focus:border-[#1a3b6b] focus:ring-1 focus:ring-[#1a3b6b] text-[#191918] placeholder-[#767064]"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#767064] hover:text-[#191918]"
-                >
-                  <X className="size-3" />
-                </button>
-              )}
+            {/* Search Input & Order Options */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-60 md:w-68">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[#767064]" />
+                <input
+                  type="text"
+                  placeholder="Search dish, ingredients..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-8 py-1.5 text-xs bg-white/80 border border-[#1a3b6b]/20 rounded-full focus:outline-none focus:border-[#1a3b6b] focus:ring-1 focus:ring-[#1a3b6b] text-[#191918] placeholder-[#767064]"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#767064] hover:text-[#191918]"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsOrderOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#1a3b6b] text-white hover:bg-[#122a4f] transition-all cursor-pointer shrink-0 shadow-xs"
+                title="Delivery & Order Options"
+              >
+                <ShoppingBag className="size-3.5" />
+                <span className="hidden sm:inline">Order Options</span>
+              </button>
             </div>
           </div>
         </div>
@@ -267,14 +279,20 @@ export function MenuPage() {
             <p className="text-xs sm:text-sm text-[#433e36]">
               Showing <strong className="text-[#1a3b6b]">{totalMatchingItems}</strong> items
               {activeCategory !== "all" && (
-                <> in <span className="font-semibold capitalize text-[#1a3b6b]">{activeCategory}</span></>
+                <>
+                  {" "}
+                  in{" "}
+                  <span className="font-semibold capitalize text-[#1a3b6b]">{activeCategory}</span>
+                </>
               )}
               {dietaryFilter !== "all" && (
-                <> filtered by <span className="font-semibold text-[#d99214] capitalize">{dietaryFilter}</span></>
+                <>
+                  {" "}
+                  filtered by{" "}
+                  <span className="font-semibold text-[#d99214] capitalize">{dietaryFilter}</span>
+                </>
               )}
-              {searchQuery && (
-                <> matching &ldquo;{searchQuery}&rdquo;</>
-              )}
+              {searchQuery && <> matching &ldquo;{searchQuery}&rdquo;</>}
             </p>
             <button
               onClick={() => {
@@ -294,8 +312,8 @@ export function MenuPage() {
             <Utensils className="size-10 mx-auto text-[#d99214] mb-3" />
             <h3 className="font-display text-xl font-bold text-[#1a3b6b]">No menu items found</h3>
             <p className="text-sm text-[#5c574c] mt-1 max-w-md mx-auto">
-              We couldn&apos;t find any items matching your current filters. Try changing your search
-              term or resetting the dietary filters.
+              We couldn&apos;t find any items matching your current filters. Try changing your
+              search term or resetting the dietary filters.
             </p>
             <button
               onClick={() => {
@@ -389,9 +407,7 @@ export function MenuPage() {
                                     </div>
 
                                     {/* Prominent Price Badge */}
-                                    <div className="menu-price-badge shrink-0">
-                                      {item.price}
-                                    </div>
+                                    <div className="menu-price-badge shrink-0">{item.price}</div>
                                   </div>
 
                                   {/* Rich Description */}
@@ -408,7 +424,10 @@ export function MenuPage() {
                                 <div className="flex flex-wrap gap-1.5">
                                   {item.tags &&
                                     item.tags.map((tag) => (
-                                      <span key={tag} className={`menu-tag-badge ${getTagClass(tag)}`}>
+                                      <span
+                                        key={tag}
+                                        className={`menu-tag-badge ${getTagClass(tag)}`}
+                                      >
                                         {tag}
                                       </span>
                                     ))}
@@ -486,9 +505,9 @@ export function MenuPage() {
             </h3>
             <p className="mt-3 text-xs sm:text-sm text-[#5c574c] leading-relaxed max-w-2xl mx-auto">
               Please notify our staff of any allergies or dietary restrictions before ordering.
-              Consuming raw or undercooked meats, poultry, seafood, shellfish, or eggs may
-              increase your risk of foodborne illness. We take pride in accommodating vegan,
-              vegetarian, and gluten-sensitive diners.
+              Consuming raw or undercooked meats, poultry, seafood, shellfish, or eggs may increase
+              your risk of foodborne illness. We take pride in accommodating vegan, vegetarian, and
+              gluten-sensitive diners.
             </p>
           </div>
         </div>
@@ -528,9 +547,7 @@ export function MenuPage() {
       {/* ========================================================================= */}
       {/* 6. MODALS FOR SELECTION, ORDERING & RESERVATIONS */}
       {/* ========================================================================= */}
-      {selectedDish && (
-        <DishModal dish={selectedDish} onClose={() => setSelectedDish(null)} />
-      )}
+      {selectedDish && <DishModal dish={selectedDish} onClose={() => setSelectedDish(null)} />}
       <OrderModal isOpen={isOrderOpen} onClose={() => setIsOrderOpen(false)} />
     </div>
   );

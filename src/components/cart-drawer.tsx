@@ -565,10 +565,7 @@ export function CartDrawer() {
           {/* ========================================================================= */}
           {/* 2. BODY CONTENT (ITEMS / CHECKOUT / CONFIRMED) */}
           {/* ========================================================================= */}
-          <div
-            id="checkout-form-container"
-            className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5"
-          >
+          <div id="checkout-form-container" className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
             {/* ----------------------------------------------------------------------- */}
             {/* STEP 1: REVIEW ITEMS */}
             {/* ----------------------------------------------------------------------- */}
@@ -583,8 +580,8 @@ export function CartDrawer() {
                       Your cart is empty
                     </h3>
                     <p className="text-xs text-[#5c574c] max-w-xs mx-auto">
-                      Looks like you haven&apos;t added any dishes yet. Browse our California menu to
-                      select your favorites!
+                      Looks like you haven&apos;t added any dishes yet. Browse our California menu
+                      to select your favorites!
                     </p>
                     <button
                       onClick={() => setIsCartOpen(false)}
@@ -776,7 +773,9 @@ export function CartDrawer() {
                         }}
                         placeholder="Your full name"
                         className={`w-full p-2.5 text-xs rounded-md bg-white border ${
-                          errors.name ? "border-[#ef4444] ring-1 ring-[#ef4444]" : "border-[#c9bba6]"
+                          errors.name
+                            ? "border-[#ef4444] ring-1 ring-[#ef4444]"
+                            : "border-[#c9bba6]"
                         } focus:outline-none focus:border-[#1a3b6b] text-[#191918]`}
                       />
                       {errors.name && (
@@ -801,7 +800,9 @@ export function CartDrawer() {
                         }}
                         placeholder="e.g. (323) 871-1717"
                         className={`w-full p-2.5 text-xs rounded-md bg-white border ${
-                          errors.phone ? "border-[#ef4444] ring-1 ring-[#ef4444]" : "border-[#c9bba6]"
+                          errors.phone
+                            ? "border-[#ef4444] ring-1 ring-[#ef4444]"
+                            : "border-[#c9bba6]"
                         } focus:outline-none focus:border-[#1a3b6b] text-[#191918]`}
                       />
                       {errors.phone && (
@@ -827,7 +828,9 @@ export function CartDrawer() {
                         }}
                         placeholder="e.g. name@example.com"
                         className={`w-full p-2.5 text-xs rounded-md bg-white border ${
-                          errors.email ? "border-[#ef4444] ring-1 ring-[#ef4444]" : "border-[#c9bba6]"
+                          errors.email
+                            ? "border-[#ef4444] ring-1 ring-[#ef4444]"
+                            : "border-[#c9bba6]"
                         } focus:outline-none focus:border-[#1a3b6b] text-[#191918]`}
                       />
                       {errors.email && (
@@ -1068,9 +1071,7 @@ export function CartDrawer() {
                           onChange={(e) => setIncludeUtensils(e.target.checked)}
                           className="size-4 text-[#1a3b6b] rounded border-gray-300 focus:ring-[#1a3b6b]"
                         />
-                        <span className="font-bold text-xs text-[#191918]">
-                          Include Utensils?
-                        </span>
+                        <span className="font-bold text-xs text-[#191918]">Include Utensils?</span>
                       </label>
                       <p className="text-[0.68rem] text-[#767064] mt-1">
                         Eco-friendly practice: We only include napkins and cutlery if selected.
@@ -1292,8 +1293,8 @@ export function CartDrawer() {
                       <div className="p-3 rounded-lg bg-[#dfd2be]/50 text-xs text-[#595347] flex items-center gap-2">
                         <Store className="size-4 text-[#1a3b6b] shrink-0" />
                         <span>
-                          You can pay via Card, Cash, or Apple Pay at the Beachwood Cafe counter upon
-                          pickup.
+                          You can pay via Card, Cash, or Apple Pay at the Beachwood Cafe counter
+                          upon pickup.
                         </span>
                       </div>
                     )}
@@ -1418,9 +1419,8 @@ export function CartDrawer() {
                     Thank you, {confirmedOrder.name}!
                   </h3>
                   <p className="text-xs text-[#595347] max-w-md mx-auto">
-                    Your order{" "}
-                    <strong className="text-[#191918]">#{confirmedOrder.orderId}</strong> has been
-                    received and sent directly to our kitchen staff.
+                    Your order <strong className="text-[#191918]">#{confirmedOrder.orderId}</strong>{" "}
+                    has been received and sent directly to our kitchen staff.
                   </p>
                 </div>
 
@@ -1457,7 +1457,9 @@ export function CartDrawer() {
                         Fulfilment Type
                       </span>
                       <p className="font-bold text-sm text-[#1a3b6b] capitalize mt-0.5">
-                        {confirmedOrder.fulfilmentType === "pickup" ? "Pick Up at Cafe" : "Delivery"}
+                        {confirmedOrder.fulfilmentType === "pickup"
+                          ? "Pick Up at Cafe"
+                          : "Delivery"}
                       </p>
                     </div>
                     <div className="text-right">
@@ -1515,9 +1517,7 @@ export function CartDrawer() {
                         <span>
                           {it.quantity}x {it.name}
                         </span>
-                        <span className="font-semibold text-[#191918]">
-                          ${it.total.toFixed(2)}
-                        </span>
+                        <span className="font-semibold text-[#191918]">${it.total.toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
@@ -1572,16 +1572,14 @@ export function CartDrawer() {
                           .map((i) => `• ${i.quantity}x ${i.name} ($${i.total.toFixed(2)})`)
                           .join("\n") +
                         `\n\n*Total Amount:* $${confirmedOrder.grandTotal.toFixed(2)}` +
-                        (confirmedOrder.orderNote
-                          ? `\n*Note:* ${confirmedOrder.orderNote}`
-                          : "")
+                        (confirmedOrder.orderNote ? `\n*Note:* ${confirmedOrder.orderNote}` : ""),
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => {
                       adminStore.trackWhatsAppClick(
                         "Order Receipt Copy",
-                        `Order #${confirmedOrder.orderId} - ${confirmedOrder.name} ($${confirmedOrder.grandTotal.toFixed(2)})`
+                        `Order #${confirmedOrder.orderId} - ${confirmedOrder.name} ($${confirmedOrder.grandTotal.toFixed(2)})`,
                       );
                     }}
                     className="w-full py-3 px-4 rounded-xl font-extrabold text-xs uppercase tracking-wider text-white bg-[#16a34a] hover:bg-[#15803d] shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
@@ -1621,7 +1619,7 @@ export function CartDrawer() {
                       window.dispatchEvent(
                         new CustomEvent("bwc_open_track_modal", {
                           detail: { orderNumber: placedOrderNumber },
-                        })
+                        }),
                       );
                     }}
                     className="btn-olive w-full py-2.5 text-xs font-bold rounded-xl mt-2 flex items-center justify-center gap-2 cursor-pointer shadow-sm"

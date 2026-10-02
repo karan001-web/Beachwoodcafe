@@ -63,9 +63,9 @@
   --radius: 0.25rem;
   --background: oklch(0.92 0.02 85);
   --foreground: oklch(0.18 0.015 65);
-  --card: oklch(0.90 0.02 85);
+  --card: oklch(0.9 0.02 85);
   --card-foreground: oklch(0.18 0.015 65);
-  --popover: oklch(0.90 0.02 85);
+  --popover: oklch(0.9 0.02 85);
   --popover-foreground: oklch(0.18 0.015 65);
   --primary: oklch(0.68 0.16 75);
   --primary-foreground: oklch(0.18 0.015 65);
@@ -78,7 +78,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(0.82 0.02 80);
-  --input: oklch(0.80 0.02 80);
+  --input: oklch(0.8 0.02 80);
   --ring: oklch(0.68 0.16 75);
   --paper: #ede4d5;
   --ink: #191918;
@@ -173,6 +173,28 @@ button:focus-visible {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Sleek, visible custom scrollbar for modals and scrollable panels */
+.custom-modal-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(26, 59, 107, 0.4) rgba(26, 59, 107, 0.08);
+}
+.custom-modal-scrollbar::-webkit-scrollbar {
+  width: 7px;
+}
+.custom-modal-scrollbar::-webkit-scrollbar-track {
+  background: rgba(26, 59, 107, 0.06);
+  border-radius: 9999px;
+  margin: 6px 0;
+}
+.custom-modal-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(26, 59, 107, 0.35);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+.custom-modal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(26, 59, 107, 0.65);
+}
 .font-display {
   font-family: var(--font-display);
 }
@@ -188,7 +210,10 @@ button:focus-visible {
   position: sticky;
   top: 0;
   z-index: 50;
-  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
   border-bottom: 1px solid rgba(26, 59, 107, 0.1);
   background: rgba(237, 228, 213, 0.92);
   backdrop-filter: blur(14px);
@@ -200,7 +225,9 @@ button:focus-visible {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(26, 59, 107, 0.18);
-  box-shadow: 0 10px 30px -10px rgba(26, 59, 107, 0.15), 0 2px 6px rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 10px 30px -10px rgba(26, 59, 107, 0.15),
+    0 2px 6px rgba(0, 0, 0, 0.04);
 }
 .brand-mark {
   display: flex;
@@ -330,7 +357,9 @@ button:focus-visible {
   background: rgba(237, 228, 213, 0.98);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 24px 38px -8px rgba(26, 59, 107, 0.2), 0 10px 16px -4px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 24px 38px -8px rgba(26, 59, 107, 0.2),
+    0 10px 16px -4px rgba(0, 0, 0, 0.08);
   max-height: calc(100vh - 64px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -617,7 +646,8 @@ button:focus-visible {
 }
 
 @keyframes mapPinBob {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0);
   }
   50% {
@@ -626,7 +656,8 @@ button:focus-visible {
 }
 
 @keyframes mapBeaconPulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.75;
     box-shadow: 0 0 0 0 rgba(229, 169, 36, 0.6);
@@ -648,7 +679,8 @@ button:focus-visible {
 }
 
 @keyframes floatGentle {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0);
   }
   50% {
@@ -657,7 +689,8 @@ button:focus-visible {
 }
 
 @keyframes pulseGlow {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.45;
     transform: scale(1);
   }
@@ -710,7 +743,10 @@ button:focus-visible {
 
 /* Touch feedback for mobile cards and buttons */
 .touch-feedback {
-  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    filter 0.18s ease,
+    box-shadow 0.18s ease;
   -webkit-tap-highlight-color: transparent;
 }
 .touch-feedback:active {
@@ -837,7 +873,9 @@ button:focus-visible {
   background: #ffffff;
   border-color: rgba(217, 146, 20, 0.5);
   transform: translateY(-3px);
-  box-shadow: 0 12px 24px -6px rgba(26, 59, 107, 0.12), 0 4px 8px -2px rgba(217, 146, 20, 0.08);
+  box-shadow:
+    0 12px 24px -6px rgba(26, 59, 107, 0.12),
+    0 4px 8px -2px rgba(217, 146, 20, 0.08);
 }
 .menu-card::before {
   content: "";
@@ -927,7 +965,9 @@ button:focus-visible {
 }
 .menu-photo-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 16px 36px -6px rgba(26, 59, 107, 0.28), 0 4px 12px rgba(217, 146, 20, 0.2);
+  box-shadow:
+    0 16px 36px -6px rgba(26, 59, 107, 0.28),
+    0 4px 12px rgba(217, 146, 20, 0.2);
 }
 .menu-photo-card img {
   width: 100%;
@@ -1000,7 +1040,8 @@ button:focus-visible {
     margin: 8mm;
   }
 
-  html, body {
+  html,
+  body {
     background: #ffffff !important;
     color: #000000 !important;
     font-size: 12px !important;
@@ -1015,7 +1056,10 @@ button:focus-visible {
   }
 
   /* Prevent page elements from breaking awkwardly */
-  img, svg, table, blockquote {
+  img,
+  svg,
+  table,
+  blockquote {
     page-break-inside: avoid;
     break-inside: avoid;
   }

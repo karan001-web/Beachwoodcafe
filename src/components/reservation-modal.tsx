@@ -241,14 +241,14 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
               <div className="space-y-2 pt-2">
                 <a
                   href={`https://wa.me/917814485357?text=${encodeURIComponent(
-                    `Hello Beachwood Cafe! 🍽️ I just placed a table booking request:\n\n📋 Booking Ref: #${confirmedResNumber || "CONFIRMED"}\n👤 Guest Name: ${fullName}\n📞 Phone: ${phone}\n📅 Date: ${date}\n⏰ Time: ${time}\n👥 Party: ${partySize}\n🪑 Seating: ${seating}${specialRequests ? `\n📝 Special Requests: ${specialRequests}` : ""}\n\nPlease confirm my table reservation. Thank you!`
+                    `Hello Beachwood Cafe! 🍽️ I just placed a table booking request:\n\n📋 Booking Ref: #${confirmedResNumber || "CONFIRMED"}\n👤 Guest Name: ${fullName}\n📞 Phone: ${phone}\n📅 Date: ${date}\n⏰ Time: ${time}\n👥 Party: ${partySize}\n🪑 Seating: ${seating}${specialRequests ? `\n📝 Special Requests: ${specialRequests}` : ""}\n\nPlease confirm my table reservation. Thank you!`,
                   )}`}
                   target="_blank"
                   rel="noreferrer"
                   onClick={() =>
                     adminStore.trackWhatsAppClick(
                       "Customer Reservation WhatsApp Share",
-                      `#${confirmedResNumber || "CONFIRMED"}`
+                      `#${confirmedResNumber || "CONFIRMED"}`,
                     )
                   }
                   className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#25D366] to-[#128C7E] hover:from-[#20ba5a] hover:to-[#0f7a6e] text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
@@ -319,8 +319,8 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                         touched.fullName && !isNameValid
                           ? "border-rose-500 bg-rose-50/40 text-rose-900 focus:ring-2 focus:ring-rose-500/20"
                           : touched.fullName && isNameValid
-                          ? "border-emerald-500 bg-emerald-50/20 text-[#191918] focus:ring-2 focus:ring-emerald-500/20"
-                          : "border-[#c9bba6] text-[#191918] focus:border-[#d99214] focus:ring-2 focus:ring-[#d99214]/20"
+                            ? "border-emerald-500 bg-emerald-50/20 text-[#191918] focus:ring-2 focus:ring-emerald-500/20"
+                            : "border-[#c9bba6] text-[#191918] focus:border-[#d99214] focus:ring-2 focus:ring-[#d99214]/20"
                       } focus:outline-none`}
                     />
                     {touched.fullName && isNameValid && (
@@ -359,8 +359,8 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                           touched.phone && !isPhoneValid
                             ? "border-rose-500 bg-rose-50/40 text-rose-900 focus:ring-2 focus:ring-rose-500/20"
                             : touched.phone && isPhoneValid
-                            ? "border-emerald-500 bg-emerald-50/20 text-[#191918] focus:ring-2 focus:ring-emerald-500/20"
-                            : "border-[#c9bba6] text-[#191918] focus:border-[#d99214] focus:ring-2 focus:ring-[#d99214]/20"
+                              ? "border-emerald-500 bg-emerald-50/20 text-[#191918] focus:ring-2 focus:ring-emerald-500/20"
+                              : "border-[#c9bba6] text-[#191918] focus:border-[#d99214] focus:ring-2 focus:ring-[#d99214]/20"
                         } focus:outline-none`}
                       />
                       {touched.phone && isPhoneValid && (
@@ -397,8 +397,8 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                           touched.email && !isEmailValid
                             ? "border-rose-500 bg-rose-50/40 text-rose-900 focus:ring-2 focus:ring-rose-500/20"
                             : touched.email && isEmailValid
-                            ? "border-emerald-500 bg-emerald-50/20 text-[#191918] focus:ring-2 focus:ring-emerald-500/20"
-                            : "border-[#c9bba6] text-[#191918] focus:border-[#d99214] focus:ring-2 focus:ring-[#d99214]/20"
+                              ? "border-emerald-500 bg-emerald-50/20 text-[#191918] focus:ring-2 focus:ring-emerald-500/20"
+                              : "border-[#c9bba6] text-[#191918] focus:border-[#d99214] focus:ring-2 focus:ring-[#d99214]/20"
                         } focus:outline-none`}
                       />
                       {touched.email && isEmailValid && (
@@ -441,11 +441,18 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                       <option value="4 guests">4 guests · Booth or Table</option>
                       <option value="5 guests">5 guests · Group Table</option>
                       <option value="6 guests">6 guests · Large Table</option>
-                      <option value="Large party (7+ guests)">7+ guests · Special Event Party</option>
+                      <option value="Large party (7+ guests)">
+                        7+ guests · Special Event Party
+                      </option>
                     </select>
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-[#767064]">
                       <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M19 9l-7 7-7-7"
+                        />
                       </svg>
                     </div>
                   </div>
@@ -473,8 +480,18 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                         <option value="Next Week">Next Week</option>
                       </select>
                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-[#767064]">
-                        <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        <svg
+                          className="size-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M19 9l-7 7-7-7"
+                          />
                         </svg>
                       </div>
                     </div>
@@ -502,8 +519,18 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                         <option value="8:15 PM (Dinner)">8:15 PM (Late Evening)</option>
                       </select>
                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-[#767064]">
-                        <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        <svg
+                          className="size-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M19 9l-7 7-7-7"
+                          />
                         </svg>
                       </div>
                     </div>
@@ -566,11 +593,15 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
                     <div className="flex items-start gap-2">
                       <AlertCircle className="size-4 shrink-0 mt-0.5 text-rose-600" />
                       <div>
-                        <p className="font-bold text-rose-900">Please complete the required details:</p>
+                        <p className="font-bold text-rose-900">
+                          Please complete the required details:
+                        </p>
                         <ul className="list-disc list-inside mt-1 space-y-0.5 text-[0.72rem]">
                           {!isNameValid && <li>Enter your full name (at least 2 letters)</li>}
                           {!isPhoneValid && <li>Enter a valid phone number (at least 7 digits)</li>}
-                          {!isEmailValid && <li>Enter a valid email address (e.g. name@example.com)</li>}
+                          {!isEmailValid && (
+                            <li>Enter a valid email address (e.g. name@example.com)</li>
+                          )}
                         </ul>
                       </div>
                     </div>

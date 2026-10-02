@@ -1,13 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  ArrowRight,
-  Award,
-  Coffee,
-  Heart,
-  MapPin,
-  Sparkles,
-  Utensils,
-} from "lucide-react";
+import { ArrowRight, Award, Coffee, Heart, MapPin, Sparkles, Utensils } from "lucide-react";
 import { images } from "../lib/site-content";
 
 export const Route = createFileRoute("/about")({
@@ -87,14 +79,17 @@ function AboutPage() {
             </h2>
 
             <p className="text-base sm:text-lg lg:text-xl font-medium text-[#2d2924] leading-relaxed">
-              Award-winning architect <strong className="font-bold text-[#191918]">Barbara Bestor</strong> transformed
-              the historic Village Coffee Shop into a playful, modern space alive with custom graphic tile, warm timber
-              beams, natural Southern California light, and the relaxed cadence of the canyon.
+              Award-winning architect{" "}
+              <strong className="font-bold text-[#191918]">Barbara Bestor</strong> transformed the
+              historic Village Coffee Shop into a playful, modern space alive with custom graphic
+              tile, warm timber beams, natural Southern California light, and the relaxed cadence of
+              the canyon.
             </p>
 
             <p className="text-sm sm:text-base font-medium text-[#49443b] leading-relaxed">
-              Every detail—from the vintage-inspired banquettes to the hand-crafted wood counters—was designed to make
-              you feel instantly at home, whether you're grabbing a morning cortado or savoring a slow weekend brunch.
+              Every detail—from the vintage-inspired banquettes to the hand-crafted wood
+              counters—was designed to make you feel instantly at home, whether you're grabbing a
+              morning cortado or savoring a slow weekend brunch.
             </p>
 
             <div className="pt-3 flex flex-wrap gap-2.5 text-xs font-bold text-[#1a3b6b]">
@@ -160,13 +155,14 @@ function AboutPage() {
             </h2>
 
             <p className="text-base sm:text-lg lg:text-xl font-medium text-[#2d2924] leading-relaxed">
-              Our kitchen moves effortlessly between morning breakfast, sunny lunches, and weekend dinners—drawing from
-              Asian, Scandinavian, and Mediterranean flavors without ever compromising its California freshness.
+              Our kitchen moves effortlessly between morning breakfast, sunny lunches, and weekend
+              dinners—drawing from Asian, Scandinavian, and Mediterranean flavors without ever
+              compromising its California freshness.
             </p>
 
             <p className="text-sm sm:text-base font-medium text-[#49443b] leading-relaxed">
-              Organic ingredients, locally sourced California produce, and house-made components anchor food that is
-              colorful, nourishing, and deeply considered.
+              Organic ingredients, locally sourced California produce, and house-made components
+              anchor food that is colorful, nourishing, and deeply considered.
             </p>
 
             {/* Feature Badges */}
@@ -251,28 +247,41 @@ function AboutPage() {
             </h2>
 
             <p className="text-base sm:text-lg lg:text-xl font-medium text-[#2d2924] leading-relaxed">
-              Close to the Hollywood Sign, yet grounded in the quiet, historic rhythms of a real hillside community—morning
-              coffee conversations, familiar neighborhood faces, and tables worth returning to week after week.
+              Close to the Hollywood Sign, yet grounded in the quiet, historic rhythms of a real
+              hillside community—morning coffee conversations, familiar neighborhood faces, and
+              tables worth returning to week after week.
             </p>
 
             <p className="text-sm sm:text-base font-medium text-[#49443b] leading-relaxed">
-              Whether you are a longtime canyon resident or visiting for the first time, Beachwood Cafe remains a sunny
-              meeting spot for neighbors, creatives, and wanderers alike.
+              Whether you are a longtime canyon resident or visiting for the first time, Beachwood
+              Cafe remains a sunny meeting spot for neighbors, creatives, and wanderers alike.
             </p>
 
             {/* Quick Visitor Tips Card */}
             <div className="p-4 rounded-2xl bg-white/80 border border-[#ded3c1] grid sm:grid-cols-3 gap-3 text-center">
               <div>
-                <span className="text-xs font-extrabold uppercase tracking-wider text-[#1a3b6b] block">Walk-Ins</span>
-                <span className="text-xs font-bold text-[#191918] mt-0.5 block">Always Welcome</span>
+                <span className="text-xs font-extrabold uppercase tracking-wider text-[#1a3b6b] block">
+                  Walk-Ins
+                </span>
+                <span className="text-xs font-bold text-[#191918] mt-0.5 block">
+                  Always Welcome
+                </span>
               </div>
               <div className="border-t sm:border-t-0 sm:border-l border-[#ded3c1] pt-2 sm:pt-0">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-[#1a3b6b] block">Outdoor Seating</span>
-                <span className="text-xs font-bold text-[#191918] mt-0.5 block">Dog-Friendly Benches</span>
+                <span className="text-xs font-extrabold uppercase tracking-wider text-[#1a3b6b] block">
+                  Outdoor Seating
+                </span>
+                <span className="text-xs font-bold text-[#191918] mt-0.5 block">
+                  Dog-Friendly Benches
+                </span>
               </div>
               <div className="border-t sm:border-t-0 sm:border-l border-[#ded3c1] pt-2 sm:pt-0">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-[#1a3b6b] block">Parking</span>
-                <span className="text-xs font-bold text-[#191918] mt-0.5 block">Shared Lot & Street</span>
+                <span className="text-xs font-extrabold uppercase tracking-wider text-[#1a3b6b] block">
+                  Parking
+                </span>
+                <span className="text-xs font-bold text-[#191918] mt-0.5 block">
+                  Shared Lot & Street
+                </span>
               </div>
             </div>
           </div>
@@ -285,7 +294,8 @@ function AboutPage() {
           <div className="max-w-3xl mx-auto space-y-4">
             <Heart className="size-8 text-[#d99214] mx-auto opacity-90 animate-pulse" />
             <blockquote className="editorial-title text-2xl sm:text-3xl lg:text-4xl font-bold leading-snug tracking-tight text-white/95">
-              “A sun-drenched canyon living room where thoughtful food, award-winning design, and neighborhood life meet.”
+              “A sun-drenched canyon living room where thoughtful food, award-winning design, and
+              neighborhood life meet.”
             </blockquote>
             <p className="text-xs sm:text-sm font-extrabold uppercase tracking-widest text-[#d99214] pt-2">
               Good Food · Good People · Hollywood Hills

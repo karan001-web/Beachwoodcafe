@@ -18,7 +18,7 @@ export const site = {
   orderUrl: "/menu",
   reserveUrl: "https://www.opentable.com/r/beachwood-los-angeles",
   directionsUrl:
-    "https://www.google.com/maps/place/Beachwood+Cafe+Hollywood/@34.1199814,163.631855,3z/data=!4m10!1m2!2m1!1scafe+in+california!3m6!1s0x80c2bf6d60c0fa41:0x3a057cab053ccfd!8m2!3d34.1199814!4d-118.32127!15sChJjYWZlIGluIGNhbGlmb3JuaWFaFCISY2FmZSBpbiBjYWxpZm9ybmlhkgEKcmVzdGF1cmFudOABAA!16s%2Fg%2F11gzrqcym?entry=ttu&g_ep=EgoyMDI2MDkxNi4wIKXMDSoASAFQAw%3D%3D",
+    "https://www.google.com/maps/place/Beachwood+Cafe/@34.1199814,-118.32127,17z/data=!3m1!4b1!4m6!3m5!1s0x80c2bf6d60c0fa41:0x3a057cab053ccfd!8m2!3d34.1199814!4d-118.32127!16s%2Fg%2F11gzrqcym",
   instagram: "https://www.instagram.com/beachwoodcafe/",
   facebook: "https://www.facebook.com/beachwoodcafe/",
   hours: [
@@ -595,11 +595,7 @@ export const menuSections: MenuSection[] = [
             subtitle: "Stone-ground organic Japanese matcha.",
             description:
               "Authentic first-harvest ceremonial grade Uji matcha whisked with silky steamed oat milk and a touch of pure organic vanilla bean syrup.",
-            ingredients: [
-              "Uji Ceremonial Matcha",
-              "Steamed Oat Milk",
-              "Organic Vanilla Bean",
-            ],
+            ingredients: ["Uji Ceremonial Matcha", "Steamed Oat Milk", "Organic Vanilla Bean"],
             tags: ["Organic", "Best Seller"],
           },
           {
@@ -610,11 +606,7 @@ export const menuSections: MenuSection[] = [
             subtitle: "Crafted by experienced canyon baristas.",
             description:
               "Double shot of our custom Beachwood Espresso roast combined with velvety micro-foamed organic milk. Custom flavor options: Bourbon Vanilla, Salted Caramel, or Honey Lavender.",
-            ingredients: [
-              "Beachwood Espresso",
-              "Steamed Microfoam Milk",
-              "House Syrup Option",
-            ],
+            ingredients: ["Beachwood Espresso", "Steamed Microfoam Milk", "House Syrup Option"],
             tags: ["House Blend", "Popular"],
           },
           {
@@ -623,7 +615,11 @@ export const menuSections: MenuSection[] = [
             subtitle: "Smooth, chocolatey, low-acid cold brew.",
             description:
               "Single-origin Colombian beans steeped in cold mountain water for 18 slow hours. Served over crystal hand-cut ice with optional sweet cold foam.",
-            ingredients: ["Single-Origin Coffee", "Filtered Mountain Water", "Optional Sweet Cold Foam"],
+            ingredients: [
+              "Single-Origin Coffee",
+              "Filtered Mountain Water",
+              "Optional Sweet Cold Foam",
+            ],
             tags: ["Best Seller"],
           },
           {
@@ -740,12 +736,7 @@ export const menuSections: MenuSection[] = [
             subtitle: "Handcrafted Hollywood aperitifs & spritzes.",
             description:
               "Seasonal rotating cocktails including the Hollywood Hills Gin Fizz, Canyon Paloma with pink grapefruit, Spiced Mezcalita, and Smoked Bourbon Old Fashioned.",
-            ingredients: [
-              "Craft Spirits",
-              "Fresh Citrus",
-              "House Herb Syrups",
-              "Artisan Bitters",
-            ],
+            ingredients: ["Craft Spirits", "Fresh Citrus", "House Herb Syrups", "Artisan Bitters"],
             tags: ["Mixologist Special", "House Favorite"],
           },
           {

@@ -1,13 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  Camera,
-  ChevronLeft,
-  ChevronRight,
-  Instagram,
-  Maximize2,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, Instagram, Maximize2, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { images, site } from "../lib/site-content";
 
@@ -131,9 +123,13 @@ function GalleryPage() {
       if (e.key === "Escape") {
         setLightboxIndex(null);
       } else if (e.key === "ArrowLeft") {
-        setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : filteredItems.length - 1));
+        setLightboxIndex((prev) =>
+          prev !== null && prev > 0 ? prev - 1 : filteredItems.length - 1,
+        );
       } else if (e.key === "ArrowRight") {
-        setLightboxIndex((prev) => (prev !== null && prev < filteredItems.length - 1 ? prev + 1 : 0));
+        setLightboxIndex((prev) =>
+          prev !== null && prev < filteredItems.length - 1 ? prev + 1 : 0,
+        );
       }
     };
 
@@ -155,8 +151,8 @@ function GalleryPage() {
         </h1>
 
         <p className="mt-4 sm:mt-5 text-base sm:text-lg lg:text-xl font-medium text-[#2f2b25] leading-relaxed max-w-2xl mx-auto">
-          Morning light, full tables, artisanal coffee arriving, and the unmistakable warmth and color
-          of this historic corner of Los Angeles.
+          Morning light, full tables, artisanal coffee arriving, and the unmistakable warmth and
+          color of this historic corner of Los Angeles.
         </p>
 
         {/* Category Filter Pills with smooth horizontal swipe */}
@@ -243,8 +239,8 @@ function GalleryPage() {
             Capture your canyon story.
           </h2>
           <p className="text-sm sm:text-base font-medium text-[#49443b] max-w-lg mx-auto leading-relaxed">
-            Tag <strong className="font-bold text-[#1a3b6b]">@beachwoodcafe</strong> in your photos on Instagram to be
-            featured in our community collection.
+            Tag <strong className="font-bold text-[#1a3b6b]">@beachwoodcafe</strong> in your photos
+            on Instagram to be featured in our community collection.
           </p>
           <div className="pt-2">
             <a
@@ -283,7 +279,7 @@ function GalleryPage() {
             onClick={(e) => {
               e.stopPropagation();
               setLightboxIndex((prev) =>
-                prev !== null && prev > 0 ? prev - 1 : filteredItems.length - 1
+                prev !== null && prev > 0 ? prev - 1 : filteredItems.length - 1,
               );
             }}
             className="absolute left-4 sm:left-8 top-1/2 -translate-y-1/2 z-60 size-12 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-colors cursor-pointer"
@@ -298,7 +294,7 @@ function GalleryPage() {
             onClick={(e) => {
               e.stopPropagation();
               setLightboxIndex((prev) =>
-                prev !== null && prev < filteredItems.length - 1 ? prev + 1 : 0
+                prev !== null && prev < filteredItems.length - 1 ? prev + 1 : 0,
               );
             }}
             className="absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 z-60 size-12 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-colors cursor-pointer"

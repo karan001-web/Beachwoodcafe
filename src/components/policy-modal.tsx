@@ -136,37 +136,64 @@ export function PolicyModal({ isOpen, initialPolicy = "privacy", onClose }: Poli
               </div>
 
               <p>
-                At <strong>Beachwood Cafe</strong> (“we,” “us,” or “our”), located at 2695 N Beachwood Dr,
-                Los Angeles, CA 90068, we respect your privacy and are committed to protecting personal information
-                collected through our website and in-restaurant operations.
+                At <strong>Beachwood Cafe</strong> (“we,” “us,” or “our”), located at 2695 N
+                Beachwood Dr, Los Angeles, CA 90068, we respect your privacy and are committed to
+                protecting personal information collected through our website and in-restaurant
+                operations.
               </p>
 
               <h4 className="text-base font-bold text-[#191918] pt-2">1. Information We Collect</h4>
               <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm">
-                <li><strong>Contact details:</strong> Name, email address, and phone number when placing pickup orders or table reservations.</li>
-                <li><strong>Order & Transaction data:</strong> Items ordered, pickup times, and payment transaction references processed securely via PCI-compliant payment gateways.</li>
-                <li><strong>Device & Browsing data:</strong> IP address, browser type, and interaction metrics to optimize site performance and accessibility.</li>
+                <li>
+                  <strong>Contact details:</strong> Name, email address, and phone number when
+                  placing pickup orders or table reservations.
+                </li>
+                <li>
+                  <strong>Order & Transaction data:</strong> Items ordered, pickup times, and
+                  payment transaction references processed securely via PCI-compliant payment
+                  gateways.
+                </li>
+                <li>
+                  <strong>Device & Browsing data:</strong> IP address, browser type, and interaction
+                  metrics to optimize site performance and accessibility.
+                </li>
               </ul>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">2. How We Use Your Information</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                2. How We Use Your Information
+              </h4>
               <p>
-                We use collected information solely to prepare your food orders, honor your dining reservations,
-                provide customer support, and communicate updates about cafe operating hours or seasonal menus.
+                We use collected information solely to prepare your food orders, honor your dining
+                reservations, provide customer support, and communicate updates about cafe operating
+                hours or seasonal menus.
               </p>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">3. California Privacy Rights (CCPA/CPRA)</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                3. California Privacy Rights (CCPA/CPRA)
+              </h4>
               <p>
-                Under the California Consumer Privacy Act, California residents have the right to request access to their
-                personal information, request deletion of collected data, and opt out of the sale or sharing of personal data.
-                <strong> Beachwood Cafe does not sell or share personal information with third-party advertisers.</strong>
+                Under the California Consumer Privacy Act, California residents have the right to
+                request access to their personal information, request deletion of collected data,
+                and opt out of the sale or sharing of personal data.
+                <strong>
+                  {" "}
+                  Beachwood Cafe does not sell or share personal information with third-party
+                  advertisers.
+                </strong>
               </p>
 
               <h4 className="text-base font-bold text-[#191918] pt-2">4. Contact Our Team</h4>
               <p>
-                If you have questions regarding this Privacy Policy or wish to exercise your privacy rights, please call us directly
-                at <a href={site.phoneHref} className="font-bold text-[#1a3b6b] underline">{site.phone}</a> or email us at{" "}
-                <a href={site.emailHref} className="font-bold text-[#1a3b6b] underline">{site.email}</a>, or visit us at
-                2695 N Beachwood Dr, Los Angeles, CA 90068.
+                If you have questions regarding this Privacy Policy or wish to exercise your privacy
+                rights, please call us directly at{" "}
+                <a href={site.phoneHref} className="font-bold text-[#1a3b6b] underline">
+                  {site.phone}
+                </a>{" "}
+                or email us at{" "}
+                <a href={site.emailHref} className="font-bold text-[#1a3b6b] underline">
+                  {site.email}
+                </a>
+                , or visit us at 2695 N Beachwood Dr, Los Angeles, CA 90068.
               </p>
             </div>
           )}
@@ -183,32 +210,42 @@ export function PolicyModal({ isOpen, initialPolicy = "privacy", onClose }: Poli
               </div>
 
               <p>
-                By using this website, ordering takeout, or dining at <strong>Beachwood Cafe</strong>, you agree to comply with
-                and be bound by the following terms and operating policies.
+                By using this website, ordering takeout, or dining at{" "}
+                <strong>Beachwood Cafe</strong>, you agree to comply with and be bound by the
+                following terms and operating policies.
               </p>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">1. Reservations & Table Holding</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                1. Reservations & Table Holding
+              </h4>
               <p>
-                Table reservations are managed via OpenTable. Reserved tables are held for up to 15 minutes past the scheduled
-                reservation time. Walk-in guests are welcomed on a first-come, first-served basis.
+                Table reservations are managed via OpenTable. Reserved tables are held for up to 15
+                minutes past the scheduled reservation time. Walk-in guests are welcomed on a
+                first-come, first-served basis.
               </p>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">2. Online Ordering & Pickup</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                2. Online Ordering & Pickup
+              </h4>
               <p>
-                Orders placed online are freshly prepared for in-person pickup at our counter at 2695 N Beachwood Dr. Please ensure
-                you arrive promptly during your designated pickup window for maximum freshness.
+                Orders placed online are freshly prepared for in-person pickup at our counter at
+                2695 N Beachwood Dr. Please ensure you arrive promptly during your designated pickup
+                window for maximum freshness.
               </p>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">3. Food Allergens & Dietary Requests</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                3. Food Allergens & Dietary Requests
+              </h4>
               <p>
-                While we take utmost care to accommodate dietary needs and allergies, our kitchen handles nuts, dairy, gluten,
-                eggs, and seafood. Please notify our staff of severe allergies prior to ordering.
+                While we take utmost care to accommodate dietary needs and allergies, our kitchen
+                handles nuts, dairy, gluten, eggs, and seafood. Please notify our staff of severe
+                allergies prior to ordering.
               </p>
 
               <h4 className="text-base font-bold text-[#191918] pt-2">4. Governing Law</h4>
               <p>
-                These terms are governed by and construed in accordance with the laws of the State of California and the County of
-                Los Angeles.
+                These terms are governed by and construed in accordance with the laws of the State
+                of California and the County of Los Angeles.
               </p>
             </div>
           )}
@@ -225,31 +262,52 @@ export function PolicyModal({ isOpen, initialPolicy = "privacy", onClose }: Poli
               </div>
 
               <p>
-                <strong>Beachwood Cafe</strong> is dedicated to ensuring that our website and physical dining spaces are accessible
-                to all individuals, including people with disabilities, in accordance with the Americans with Disabilities Act
-                (ADA Title III) and WCAG 2.1 Level AA guidelines.
+                <strong>Beachwood Cafe</strong> is dedicated to ensuring that our website and
+                physical dining spaces are accessible to all individuals, including people with
+                disabilities, in accordance with the Americans with Disabilities Act (ADA Title III)
+                and WCAG 2.1 Level AA guidelines.
               </p>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">1. Digital Accessibility Efforts</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                1. Digital Accessibility Efforts
+              </h4>
               <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm">
-                <li>Clear semantic HTML hierarchy and high-contrast color pairings for maximum readability.</li>
-                <li>Keyboard navigation compatibility across all interactive links, modals, and menus.</li>
-                <li>Descriptive alternative text for photos of our dishes, interior, and canyon setting.</li>
+                <li>
+                  Clear semantic HTML hierarchy and high-contrast color pairings for maximum
+                  readability.
+                </li>
+                <li>
+                  Keyboard navigation compatibility across all interactive links, modals, and menus.
+                </li>
+                <li>
+                  Descriptive alternative text for photos of our dishes, interior, and canyon
+                  setting.
+                </li>
                 <li>A visible skip-to-content mechanism for screen reader users.</li>
               </ul>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">2. In-Person Accessibility</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                2. In-Person Accessibility
+              </h4>
               <p>
-                Our café entrance and outdoor patio seating at 2695 N Beachwood Dr provide wheelchair accessibility. Service animals
-                are welcomed on our premises.
+                Our café entrance and outdoor patio seating at 2695 N Beachwood Dr provide
+                wheelchair accessibility. Service animals are welcomed on our premises.
               </p>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">3. Need Accessibility Assistance?</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                3. Need Accessibility Assistance?
+              </h4>
               <p>
-                If you encounter any difficulty accessing content on this website or require special accommodation when visiting, please
-                call us directly at <a href={site.phoneHref} className="font-bold text-[#1a3b6b] underline">{site.phone}</a> or email us at{" "}
-                <a href={site.emailHref} className="font-bold text-[#1a3b6b] underline">{site.email}</a>.
-                We are always happy to assist you in person, over the phone, or via email.
+                If you encounter any difficulty accessing content on this website or require special
+                accommodation when visiting, please call us directly at{" "}
+                <a href={site.phoneHref} className="font-bold text-[#1a3b6b] underline">
+                  {site.phone}
+                </a>{" "}
+                or email us at{" "}
+                <a href={site.emailHref} className="font-bold text-[#1a3b6b] underline">
+                  {site.email}
+                </a>
+                . We are always happy to assist you in person, over the phone, or via email.
               </p>
             </div>
           )}
@@ -266,26 +324,31 @@ export function PolicyModal({ isOpen, initialPolicy = "privacy", onClose }: Poli
               </div>
 
               <p>
-                This website uses essential cookies and performance technologies to deliver an optimal browsing experience, remember
-                user preferences, and ensure seamless navigation.
+                This website uses essential cookies and performance technologies to deliver an
+                optimal browsing experience, remember user preferences, and ensure seamless
+                navigation.
               </p>
 
               <h4 className="text-base font-bold text-[#191918] pt-2">1. Essential Cookies</h4>
               <p>
-                Required for site security, session maintenance, and opening modal dialogues (such as online ordering and reservations).
-                These cannot be turned off.
+                Required for site security, session maintenance, and opening modal dialogues (such
+                as online ordering and reservations). These cannot be turned off.
               </p>
 
-              <h4 className="text-base font-bold text-[#191918] pt-2">2. Analytics & Preference Cookies</h4>
+              <h4 className="text-base font-bold text-[#191918] pt-2">
+                2. Analytics & Preference Cookies
+              </h4>
               <p>
-                We use privacy-friendly analytics to count visits and traffic sources so we can measure and improve our site's loading
-                speed and user interface. We do not track you across other websites.
+                We use privacy-friendly analytics to count visits and traffic sources so we can
+                measure and improve our site's loading speed and user interface. We do not track you
+                across other websites.
               </p>
 
               <h4 className="text-base font-bold text-[#191918] pt-2">3. Managing Your Cookies</h4>
               <p>
-                You can manage or disable cookies through your browser settings (Chrome, Safari, Firefox, Edge). Disabling essential
-                cookies may affect some interactive site features.
+                You can manage or disable cookies through your browser settings (Chrome, Safari,
+                Firefox, Edge). Disabling essential cookies may affect some interactive site
+                features.
               </p>
             </div>
           )}

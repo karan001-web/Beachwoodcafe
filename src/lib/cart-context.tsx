@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import { type MenuItem } from "./site-content";
 
 export interface CartItem {
@@ -34,24 +42,28 @@ export function parseItemPrice(priceStr: string): number {
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>(() => {
+  const [items, setItems] = useState<CartItem[]>([]);
+  const isHydratedRef = useRef(false);
+  const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+
+  // Load from localStorage on mount (eliminates SSR hydration mismatch)
+  useEffect(() => {
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem(CART_STORAGE_KEY);
         if (saved) {
-          return JSON.parse(saved);
+          setItems(JSON.parse(saved));
         }
       } catch (err) {
         console.error("Failed to load cart from localStorage", err);
       }
+      isHydratedRef.current = true;
     }
-    return [];
-  });
+  }, []);
 
-  const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
-
-  // Sync to localStorage
+  // Sync to localStorage only after initial hydration
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
@@ -85,9 +97,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       removeFromCart(itemName);
       return;
     }
-    setItems((prev) =>
-      prev.map((i) => (i.item.name === itemName ? { ...i, quantity } : i))
-    );
+    setItems((prev) => prev.map((i) => (i.item.name === itemName ? { ...i, quantity } : i)));
   };
 
   const clearCart = () => {

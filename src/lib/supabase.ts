@@ -1,10 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type {
-  AdminOrder,
-  AdminReservation,
-  OrderStatus,
-  ReservationStatus,
-} from "./admin-store";
+import type { AdminOrder, AdminReservation, OrderStatus, ReservationStatus } from "./admin-store";
 
 // Explicit Database Row Interfaces (ensures full compatibility with strict tsconfig flags)
 export interface OrderDbRow {
@@ -61,19 +56,21 @@ function getEnvVar(key: string): string {
     if (typeof import.meta !== "undefined" && import.meta.env && import.meta.env[key]) {
       return String(import.meta.env[key]).trim();
     }
-  } catch {}
+  } catch {
+    // env not accessible in current context
+  }
   try {
     if (typeof process !== "undefined" && process.env && process.env[key]) {
       return String(process.env[key]).trim();
     }
-  } catch {}
+  } catch {
+    // process.env not accessible in current context
+  }
   return "";
 }
 
-const rawSupabaseUrl =
-  getEnvVar("VITE_SUPABASE_URL") || getEnvVar("SUPABASE_URL");
-const rawSupabaseAnonKey =
-  getEnvVar("VITE_SUPABASE_ANON_KEY") || getEnvVar("SUPABASE_ANON_KEY");
+const rawSupabaseUrl = getEnvVar("VITE_SUPABASE_URL") || getEnvVar("SUPABASE_URL");
+const rawSupabaseAnonKey = getEnvVar("VITE_SUPABASE_ANON_KEY") || getEnvVar("SUPABASE_ANON_KEY");
 
 export const isSupabaseConfigured = (): boolean => {
   if (!rawSupabaseUrl || !rawSupabaseAnonKey) return false;
@@ -150,12 +147,17 @@ export function rowToOrder(row: any): AdminOrder {
   return {
     id: String(r["id"] || ""),
     orderNumber: String(r["order_number"] || r["orderNumber"] || ""),
-    placedAt: String(r["placed_at"] || r["placedAt"] || new Date(Number(r["timestamp"]) || Date.now()).toISOString()),
+    placedAt: String(
+      r["placed_at"] ||
+        r["placedAt"] ||
+        new Date(Number(r["timestamp"]) || Date.now()).toISOString(),
+    ),
     timestamp: Number(r["timestamp"]) || Date.now(),
     customerName: String(r["customer_name"] || r["customerName"] || ""),
     customerPhone: String(r["customer_phone"] || r["customerPhone"] || ""),
     customerEmail: String(r["customer_email"] || r["customerEmail"] || ""),
-    fulfilmentType: (r["fulfilment_type"] || r["fulfilmentType"] || "pickup") as "pickup" | "delivery",
+    fulfilmentType: (r["fulfilment_type"] || r["fulfilmentType"] || "pickup") as
+      "pickup" | "delivery",
     deliveryAddress: r["delivery_address"] || r["deliveryAddress"] || undefined,
     deliveryApt: r["delivery_apt"] || r["deliveryApt"] || undefined,
     deliveryCity: r["delivery_city"] || r["deliveryCity"] || undefined,
@@ -203,7 +205,11 @@ export function rowToReservation(row: any): AdminReservation {
   return {
     id: String(r["id"] || ""),
     reservationNumber: String(r["reservation_number"] || r["reservationNumber"] || ""),
-    createdAt: String(r["created_at_str"] || r["createdAt"] || new Date(Number(r["timestamp"]) || Date.now()).toISOString()),
+    createdAt: String(
+      r["created_at_str"] ||
+        r["createdAt"] ||
+        new Date(Number(r["timestamp"]) || Date.now()).toISOString(),
+    ),
     timestamp: Number(r["timestamp"]) || Date.now(),
     fullName: String(r["full_name"] || r["fullName"] || ""),
     phone: String(r["phone"] || ""),
@@ -309,7 +315,7 @@ export async function updateOrderStatusInSupabase(
     cancelledBy?: "customer" | "admin" | undefined;
     cancelledAt?: number | undefined;
     cancellationReason?: string | undefined;
-  }
+  },
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
@@ -363,7 +369,7 @@ export async function updateOrderStatusInSupabase(
 
 export async function deleteOrderFromSupabase(
   identifier: string,
-  extra?: { orderId?: string; orderNumber?: string }
+  extra?: { orderId?: string; orderNumber?: string },
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
@@ -390,10 +396,7 @@ export async function deleteOrderFromSupabase(
     }
     const orFilter = filterParts.join(",");
 
-    const { error } = await supabase
-      .from("orders")
-      .delete()
-      .or(orFilter);
+    const { error } = await supabase.from("orders").delete().or(orFilter);
 
     if (error) {
       console.warn("Supabase delete order error:", error.message);
@@ -445,7 +448,7 @@ export async function upsertReservationToSupabase(res: AdminReservation): Promis
 export async function updateReservationStatusInSupabase(
   identifier: string,
   status: ReservationStatus,
-  extra?: { resId?: string; reservationNumber?: string }
+  extra?: { resId?: string; reservationNumber?: string },
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
@@ -472,10 +475,7 @@ export async function updateReservationStatusInSupabase(
     }
     const orFilter = filterParts.join(",");
 
-    const { error } = await supabase
-      .from("reservations")
-      .update({ status })
-      .or(orFilter);
+    const { error } = await supabase.from("reservations").update({ status }).or(orFilter);
 
     if (error) {
       console.warn("Supabase update reservation status error:", error.message);
@@ -490,7 +490,7 @@ export async function updateReservationStatusInSupabase(
 
 export async function deleteReservationFromSupabase(
   identifier: string,
-  extra?: { resId?: string; reservationNumber?: string }
+  extra?: { resId?: string; reservationNumber?: string },
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
@@ -517,10 +517,7 @@ export async function deleteReservationFromSupabase(
     }
     const orFilter = filterParts.join(",");
 
-    const { error } = await supabase
-      .from("reservations")
-      .delete()
-      .or(orFilter);
+    const { error } = await supabase.from("reservations").delete().or(orFilter);
 
     if (error) {
       console.warn("Supabase delete reservation error:", error.message);
@@ -550,34 +547,22 @@ export function subscribeToSupabaseRealtime(callbacks: {
   try {
     const channel = supabase
       .channel("beachwood-cafe-live-sync")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "orders" },
-        (payload) => {
-          if (payload.new && callbacks.onOrderInserted) {
-            callbacks.onOrderInserted(rowToOrder(payload.new));
-          }
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, (payload) => {
+        if (payload.new && callbacks.onOrderInserted) {
+          callbacks.onOrderInserted(rowToOrder(payload.new));
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "orders" },
-        (payload) => {
-          if (payload.new && callbacks.onOrderUpdated) {
-            callbacks.onOrderUpdated(rowToOrder(payload.new));
-          }
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, (payload) => {
+        if (payload.new && callbacks.onOrderUpdated) {
+          callbacks.onOrderUpdated(rowToOrder(payload.new));
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "orders" },
-        (payload) => {
-          if (callbacks.onOrderDeleted) {
-            const oldRecord = (payload.old || {}) as Record<string, any>;
-            callbacks.onOrderDeleted(oldRecord["id"], oldRecord["order_number"]);
-          }
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders" }, (payload) => {
+        if (callbacks.onOrderDeleted) {
+          const oldRecord = (payload.old || {}) as Record<string, any>;
+          callbacks.onOrderDeleted(oldRecord["id"], oldRecord["order_number"]);
         }
-      )
+      })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "reservations" },
@@ -585,7 +570,7 @@ export function subscribeToSupabaseRealtime(callbacks: {
           if (payload.new && callbacks.onReservationInserted) {
             callbacks.onReservationInserted(rowToReservation(payload.new));
           }
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -594,7 +579,7 @@ export function subscribeToSupabaseRealtime(callbacks: {
           if (payload.new && callbacks.onReservationUpdated) {
             callbacks.onReservationUpdated(rowToReservation(payload.new));
           }
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -604,7 +589,7 @@ export function subscribeToSupabaseRealtime(callbacks: {
             const oldRecord = (payload.old || {}) as Record<string, any>;
             callbacks.onReservationDeleted(oldRecord["id"], oldRecord["reservation_number"]);
           }
-        }
+        },
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {

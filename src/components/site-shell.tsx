@@ -106,17 +106,9 @@ export function SiteHeader() {
           }`}
         >
           {/* Brand Logo with Hardware-Accelerated Smooth Scaling */}
-          <Link
-            to="/"
-            className="brand-mark group"
-            aria-label="Beachwood Cafe home"
-          >
-            <span>
-              BEACHWOOD CAFE
-            </span>
-            <small>
-              HOLLYWOOD
-            </small>
+          <Link to="/" className="brand-mark group" aria-label="Beachwood Cafe home">
+            <span>BEACHWOOD CAFE</span>
+            <small>HOLLYWOOD</small>
           </Link>
 
           {/* Desktop Navigation Links */}
@@ -126,7 +118,9 @@ export function SiteHeader() {
                 key={to}
                 to={to}
                 className="nav-link font-bold"
-                activeProps={{ className: "nav-link nav-link-active font-extrabold text-[#1a3b6b]" }}
+                activeProps={{
+                  className: "nav-link nav-link-active font-extrabold text-[#1a3b6b]",
+                }}
               >
                 {label}
               </Link>

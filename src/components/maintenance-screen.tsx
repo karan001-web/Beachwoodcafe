@@ -1,4 +1,13 @@
-import { Lock, Phone, MessageCircle, MapPin, Clock, AlertTriangle, UtensilsCrossed, Sparkles } from "lucide-react";
+import {
+  Lock,
+  Phone,
+  MessageCircle,
+  MapPin,
+  Clock,
+  AlertTriangle,
+  UtensilsCrossed,
+  Sparkles,
+} from "lucide-react";
 import { site } from "../lib/site-content";
 import type { MaintenanceConfig } from "../lib/admin-store";
 

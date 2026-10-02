@@ -78,12 +78,14 @@ function ContactPage() {
               className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-out"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent pointer-events-none" />
-            
+
             {/* Floating Location Pill */}
             <div className="relative z-10 p-6 sm:p-8">
               <div className="inline-flex items-center gap-2.5 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-full shadow-lg border border-white/60 text-[#191918]">
                 <MapPin className="size-4 text-[#d99214] shrink-0" />
-                <span className="text-xs font-bold tracking-wide">Historic Beachwood Canyon · Los Angeles</span>
+                <span className="text-xs font-bold tracking-wide">
+                  Historic Beachwood Canyon · Los Angeles
+                </span>
               </div>
             </div>
           </div>
@@ -193,9 +195,6 @@ function ContactPage() {
                     </a>
                     <a
                       href={site.emailHref}
-                      onClick={() => {
-                        window.location.href = site.emailHref;
-                      }}
                       className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-full bg-white hover:bg-neutral-100 text-[#191918] font-bold text-xs uppercase tracking-wider border border-[#dfd2be] shadow-sm shrink-0 transition-all hover:scale-105 active:scale-95"
                     >
                       <span>Mail App</span>
@@ -255,10 +254,12 @@ function ContactPage() {
                 </div>
                 <div className="text-xs font-semibold text-[#3b362f] leading-relaxed space-y-1.5">
                   <p>
-                    <strong className="font-bold text-[#191918]">Shared Lot:</strong> Behind café on Belden Dr (with Beachwood Market).
+                    <strong className="font-bold text-[#191918]">Shared Lot:</strong> Behind café on
+                    Belden Dr (with Beachwood Market).
                   </p>
                   <p>
-                    <strong className="font-bold text-[#191918]">Street:</strong> Free on weekdays without restrictions; weekends south on Beachwood Dr.
+                    <strong className="font-bold text-[#191918]">Street:</strong> Free on weekdays
+                    without restrictions; weekends south on Beachwood Dr.
                   </p>
                 </div>
               </div>
@@ -299,7 +300,9 @@ function ContactPage() {
 
               {/* Social Media Links */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-[#1a3b6b] uppercase tracking-wider mr-1">Social:</span>
+                <span className="text-xs font-bold text-[#1a3b6b] uppercase tracking-wider mr-1">
+                  Social:
+                </span>
                 <a
                   href={site.instagram}
                   target="_blank"

@@ -38,7 +38,7 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   hasError: boolean;
-  error?: Error;
+  error?: Error | undefined;
 }
 
 export class OrderTrackErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
@@ -74,7 +74,8 @@ export class OrderTrackErrorBoundary extends Component<ErrorBoundaryProps, Error
           <div>
             <h3 className="text-base font-bold text-[#191918]">Order Tracking Live Sync</h3>
             <p className="text-xs text-[#767064] mt-1.5 leading-relaxed">
-              We encountered a sync delay while retrieving order details. Please tap retry to reload your live status.
+              We encountered a sync delay while retrieving order details. Please tap retry to reload
+              your live status.
             </p>
           </div>
           <div className="flex justify-center gap-2 pt-2">
@@ -113,7 +114,7 @@ export function OrderTrackerView({
 }: OrderTrackerViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [targetOrderNumber, setTargetOrderNumber] = useState<string | null>(
-    initialOrderNumber || null
+    initialOrderNumber || null,
   );
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const selectedOrderRef = useRef<AdminOrder | null>(selectedOrder);
@@ -139,7 +140,9 @@ export function OrderTrackerView({
       try {
         const params = new URLSearchParams(window.location.search);
         orderToFind = params.get("order") || params.get("id") || params.get("track") || undefined;
-      } catch {}
+      } catch {
+        // search params parsing fallback
+      }
     }
 
     if (orderToFind) {
@@ -187,9 +190,7 @@ export function OrderTrackerView({
 
     // 2. If actively tracking an order, keep tracking THAT exact order
     const activeTarget =
-      selectedOrderRef.current?.orderNumber ||
-      targetOrderNumber ||
-      initialOrderNumber;
+      selectedOrderRef.current?.orderNumber || targetOrderNumber || initialOrderNumber;
 
     if (activeTarget) {
       const match = adminStore.findOrder(activeTarget);
@@ -264,12 +265,16 @@ export function OrderTrackerView({
       // If we are currently tracking an order:
       if (current) {
         const currentNum = safeOrderNumber(current.orderNumber).toLowerCase();
-        const currentId = String(current.id || "").trim().toLowerCase();
+        const currentId = String(current.id || "")
+          .trim()
+          .toLowerCase();
 
         // If this event has a specific orderNumber or orderId, check if it belongs to OUR order
         if (changedOrderNum || changedOrderId) {
           const evNum = safeOrderNumber(changedOrderNum).toLowerCase();
-          const evId = String(changedOrderId || "").trim().toLowerCase();
+          const evId = String(changedOrderId || "")
+            .trim()
+            .toLowerCase();
 
           // If neither matches our order, ignore!
           const isOurOrder = (evNum && evNum === currentNum) || (evId && evId === currentId);
@@ -378,12 +383,12 @@ export function OrderTrackerView({
         setRecentOrders(adminStore.getCustomerRecentOrders());
       } else {
         setSearchError(
-          `No order found matching "${query}". Please check your order ID (e.g. BWC-12345) or phone number.`
+          `No order found matching "${query}". Please check your order ID (e.g. BWC-12345) or phone number.`,
         );
       }
     } catch {
       setSearchError(
-        "Unable to reach the live order server. Please check your internet connection and try again."
+        "Unable to reach the live order server. Please check your internet connection and try again.",
       );
     } finally {
       setIsSearching(false);
@@ -443,7 +448,7 @@ export function OrderTrackerView({
     if (!selectedOrder) return;
 
     const confirmed = window.confirm(
-      `⚠️ Are you sure you want to cancel Order #${selectedOrder.orderNumber}?\n\nThis will immediately inform the kitchen and halt preparation.`
+      `⚠️ Are you sure you want to cancel Order #${selectedOrder.orderNumber}?\n\nThis will immediately inform the kitchen and halt preparation.`,
     );
     if (!confirmed) return;
 
@@ -453,7 +458,7 @@ export function OrderTrackerView({
     setTimeout(() => {
       const res = adminStore.cancelOrderByCustomer(
         selectedOrder.orderNumber,
-        "Customer initiated cancellation within the 1-minute grace window"
+        "Customer initiated cancellation within the 1-minute grace window",
       );
 
       setIsCancelling(false);
@@ -506,11 +511,27 @@ export function OrderTrackerView({
   const isAdminUser = typeof window !== "undefined" && adminStore.isAuthenticated();
 
   return (
-    <div className="flex flex-col w-full text-[#191918]">
+    <div
+      className={`flex flex-col w-full text-[#191918] ${
+        isModal ? "h-full max-h-full min-h-0 flex-1 overflow-hidden" : ""
+      }`}
+      style={
+        isModal
+          ? {
+              height: "100%",
+              maxHeight: "100%",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }
+          : undefined
+      }
+    >
       {/* ===================================================================== */}
       {/* 1. HEADER */}
       {/* ===================================================================== */}
-      <div className="bg-[#1a3b6b] text-white p-4 sm:p-5 flex items-center justify-between">
+      <div className="bg-[#1a3b6b] text-white p-4 sm:p-5 flex items-center justify-between shrink-0 shadow-xs z-10">
         <div className="flex items-center gap-3">
           <div className="size-10 rounded-2xl bg-[#d99214] text-[#191918] flex items-center justify-center font-extrabold shadow-sm shrink-0">
             <Clock className="size-5" />
@@ -537,7 +558,23 @@ export function OrderTrackerView({
       </div>
 
       {/* Scrollable Container */}
-      <div className="overflow-y-auto flex-1 p-4 sm:p-6 space-y-5">
+      <div
+        className={`p-4 sm:p-6 space-y-5 custom-modal-scrollbar ${
+          isModal ? "overflow-y-auto flex-1 min-h-0 overscroll-contain" : ""
+        }`}
+        style={
+          isModal
+            ? {
+                overflowY: "auto",
+                flex: "1 1 0%",
+                minHeight: 0,
+                WebkitOverflowScrolling: "touch",
+              }
+            : undefined
+        }
+        tabIndex={isModal ? 0 : undefined}
+        aria-label="Order Tracking Details"
+      >
         {/* ===================================================================== */}
         {/* 2. SEARCH & QUICK SELECTOR */}
         {/* ===================================================================== */}
@@ -747,7 +784,7 @@ export function OrderTrackerView({
                         </a>
                         <a
                           href={`https://wa.me/917814485357?text=${encodeURIComponent(
-                            `Hello Beachwood Cafe, I have an urgent question regarding my order #${selectedOrder.orderNumber}.`
+                            `Hello Beachwood Cafe, I have an urgent question regarding my order #${selectedOrder.orderNumber}.`,
                           )}`}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -860,7 +897,9 @@ export function OrderTrackerView({
                               {isDone ? (
                                 <div
                                   className={`size-6 rounded-full flex items-center justify-center ${
-                                    isCurrent ? "bg-[#d99214] text-[#191918]" : "bg-emerald-600 text-white"
+                                    isCurrent
+                                      ? "bg-[#d99214] text-[#191918]"
+                                      : "bg-emerald-600 text-white"
                                   }`}
                                 >
                                   <Check className="size-3.5 stroke-[3]" />
@@ -973,19 +1012,25 @@ export function OrderTrackerView({
               <div className="p-4 rounded-2xl bg-white border border-[#1a3b6b]/15 text-xs space-y-2 flex flex-col justify-between">
                 <div>
                   <span className="text-[0.68rem] font-extrabold uppercase tracking-wider text-[#767064] block">
-                    Ordered Dishes ({Array.isArray(selectedOrder.items) ? selectedOrder.items.length : 0})
+                    Ordered Dishes (
+                    {Array.isArray(selectedOrder.items) ? selectedOrder.items.length : 0})
                   </span>
-                  <div className="divide-y divide-[#1a3b6b]/10 max-h-28 overflow-y-auto mt-1">
-                    {(Array.isArray(selectedOrder.items) ? selectedOrder.items : []).map((it, idx) => (
-                      <div key={idx} className="py-1 flex justify-between text-[#595347]">
-                        <span>
-                          {it?.quantity || 1}x {it?.name || "Item"}
-                        </span>
-                        <span className="font-semibold text-[#191918]">
-                          ${formatPrice(it?.total ?? (Number(it?.unitPrice || 0) * Number(it?.quantity || 1)))}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="divide-y divide-[#1a3b6b]/10 mt-1">
+                    {(Array.isArray(selectedOrder.items) ? selectedOrder.items : []).map(
+                      (it, idx) => (
+                        <div key={idx} className="py-1 flex justify-between text-[#595347]">
+                          <span>
+                            {it?.quantity || 1}x {it?.name || "Item"}
+                          </span>
+                          <span className="font-semibold text-[#191918]">
+                            $
+                            {formatPrice(
+                              it?.total ?? Number(it?.unitPrice || 0) * Number(it?.quantity || 1),
+                            )}
+                          </span>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </div>
 
@@ -1020,7 +1065,7 @@ export function OrderTrackerView({
       {/* ===================================================================== */}
       {/* 6. FOOTER */}
       {/* ===================================================================== */}
-      <div className="bg-[#ede4d5]/60 border-t border-[#1a3b6b]/15 p-3 sm:p-4 flex items-center justify-between text-xs">
+      <div className="bg-[#ede4d5]/80 backdrop-blur-xs border-t border-[#1a3b6b]/15 p-3 sm:p-4 flex items-center justify-between text-xs shrink-0 z-10">
         <div className="flex items-center gap-2 text-[#767064]">
           <span className="size-2 rounded-full bg-[#16a34a] animate-ping" />
           <span>Live updates connected</span>

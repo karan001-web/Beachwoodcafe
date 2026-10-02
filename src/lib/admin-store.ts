@@ -146,7 +146,6 @@ function sha256(ascii: string): string {
   }
   const mathPow = Math.pow;
   const maxWord = mathPow(2, 32);
-  let lengthProperty = "length";
   let i: number, j: number;
   let result = "";
   const words: number[] = [];
@@ -175,7 +174,7 @@ function sha256(ascii: string): string {
   words[words.length] = (asciiBitLength / maxWord) | 0;
   words[words.length] = asciiBitLength;
 
-  for (j = 0; j < words.length; ) {
+  for (j = 0; j < words.length;) {
     const w = words.slice(j, (j += 16));
     const oldHash = [...hash];
     hash = hash.slice(0, 8);
@@ -194,7 +193,7 @@ function sha256(ascii: string): string {
       const h7 = hash[7] ?? 0;
       const ch = (h4 & h5) ^ (~h4 & h6);
       const maj = (h0 & h1) ^ (h0 & h2) ^ (h1 & h2);
-      const wi = i < 16 ? (w[i] ?? 0) : (((w[i - 16] ?? 0) + s0 + (w[i - 7] ?? 0) + s1) | 0);
+      const wi = i < 16 ? (w[i] ?? 0) : ((w[i - 16] ?? 0) + s0 + (w[i - 7] ?? 0) + s1) | 0;
       w[i] = wi;
       const temp1 =
         h7 +
@@ -202,8 +201,7 @@ function sha256(ascii: string): string {
         ch +
         (k[i] ?? 0) +
         wi;
-      const temp2 =
-        (rightRotate(h0, 2) ^ rightRotate(h0, 13) ^ rightRotate(h0, 22)) + maj;
+      const temp2 = (rightRotate(h0, 2) ^ rightRotate(h0, 13) ^ rightRotate(h0, 22)) + maj;
       hash = [(temp1 + temp2) | 0, h0, h1, h2, (h3 + temp1) | 0, h4, h5, h6];
     }
     for (i = 0; i < 8; i++) {
@@ -255,7 +253,10 @@ interface StatusLock {
 const recentOrderStatusLocks = new Map<string, StatusLock>();
 
 export function recordOrderStatusLock(identifier: string, status: OrderStatus) {
-  const clean = String(identifier || "").trim().toLowerCase().replace(/^#/, "");
+  const clean = String(identifier || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "");
   if (clean) {
     recentOrderStatusLocks.set(clean, { status, timestamp: Date.now() });
   }
@@ -263,7 +264,10 @@ export function recordOrderStatusLock(identifier: string, status: OrderStatus) {
 
 export function getOrderStatusLock(identifier?: string): StatusLock | undefined {
   if (!identifier) return undefined;
-  const clean = String(identifier || "").trim().toLowerCase().replace(/^#/, "");
+  const clean = String(identifier || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "");
   if (!clean) return undefined;
   const lock = recentOrderStatusLocks.get(clean);
   if (!lock) return undefined;
@@ -327,7 +331,9 @@ function publishCloudEvent(type: string, payload: any) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type, payload: wrappedPayload, senderId: CLIENT_SESSION_ID }),
     }).catch(() => {});
-  } catch {}
+  } catch {
+    // broadcast network error ignored
+  }
 }
 
 function broadcastEvent(type: string, payload: any) {
@@ -497,7 +503,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
           detail: orderPayload,
-        })
+        }),
       );
 
       // Background sync to server API so other devices (admin computer/phone) receive it
@@ -509,7 +515,7 @@ export const adminStore = {
 
       if (isSupabaseConfigured()) {
         upsertOrderToSupabase(newOrder).catch((err) =>
-          console.warn("Background Supabase order save:", err)
+          console.warn("Background Supabase order save:", err),
         );
       }
     }
@@ -520,10 +526,13 @@ export const adminStore = {
   async updateOrderStatus(
     orderId: string,
     status: OrderStatus,
-    orderNumber?: string
+    orderNumber?: string,
   ): Promise<boolean> {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
+    const cleanId = String(orderId || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^#/, "");
     const cleanNum = orderNumber ? String(orderNumber).trim().toLowerCase().replace(/^#/, "") : "";
 
     let idx = orders.findIndex((o) => {
@@ -541,7 +550,9 @@ export const adminStore = {
     if (idx === -1) {
       const newOrd: AdminOrder = {
         id: orderId || `ord_${now}_${Math.random().toString(36).substring(2, 7)}`,
-        orderNumber: orderNumber || (cleanNum ? `#${cleanNum}` : `#BWC-${Math.floor(10000 + Math.random() * 90000)}`),
+        orderNumber:
+          orderNumber ||
+          (cleanNum ? `#${cleanNum}` : `#BWC-${Math.floor(10000 + Math.random() * 90000)}`),
         placedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         timestamp: now,
         customerName: "Customer",
@@ -595,7 +606,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
           detail: payload,
-        })
+        }),
       );
 
       // Sync to Supabase directly with full ID matching and await
@@ -650,10 +661,13 @@ export const adminStore = {
   // Customer cancellation strictly within 1 minute (60 seconds)
   cancelOrderByCustomer(
     orderIdentifier: string,
-    reason?: string
+    reason?: string,
   ): { success: boolean; message: string; order?: AdminOrder } {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const cleanIdentifier = String(orderIdentifier || "").trim().toLowerCase().replace(/^#/, "");
+    const cleanIdentifier = String(orderIdentifier || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^#/, "");
     const idx = orders.findIndex((o) => {
       const oId = (o.id || "").trim().toLowerCase();
       const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
@@ -725,7 +739,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
           detail: cancelPayload,
-        })
+        }),
       );
 
       // Sync cancellation to server
@@ -760,10 +774,13 @@ export const adminStore = {
   // Admin cancellation
   cancelOrderByAdmin(
     orderIdentifier: string,
-    reason?: string
+    reason?: string,
   ): { success: boolean; order?: AdminOrder } {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const cleanIdentifier = String(orderIdentifier || "").trim().toLowerCase().replace(/^#/, "");
+    const cleanIdentifier = String(orderIdentifier || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^#/, "");
     const idx = orders.findIndex((o) => {
       const oId = (o.id || "").trim().toLowerCase();
       const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
@@ -797,7 +814,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
           detail: cancelPayload,
-        })
+        }),
       );
 
       // Sync admin cancellation to server
@@ -881,12 +898,17 @@ export const adminStore = {
       try {
         const sbOrder = await fetchSingleOrderFromSupabase(query);
         if (sbOrder) {
-          const sbNum = String(sbOrder.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-          const sbId = String(sbOrder.id || "").trim().toLowerCase();
+          const sbNum = String(sbOrder.orderNumber || "")
+            .replace(/^#/, "")
+            .trim()
+            .toLowerCase();
+          const sbId = String(sbOrder.id || "")
+            .trim()
+            .toLowerCase();
           if (!deletedOrderIds.includes(sbNum) && !deletedOrderIds.includes(sbId)) {
             const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
             const existingIdx = orders.findIndex(
-              (o) => o && (o.id === sbOrder.id || o.orderNumber === sbOrder.orderNumber)
+              (o) => o && (o.id === sbOrder.id || o.orderNumber === sbOrder.orderNumber),
             );
             if (existingIdx !== -1) {
               orders[existingIdx] = sbOrder;
@@ -920,7 +942,9 @@ export const adminStore = {
       const cleanTarget = String(num).replace(/^#/, "").trim().toLowerCase();
       const match = orders.find((o) => {
         if (!o) return false;
-        const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+        const oNum = o.orderNumber
+          ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
         const oId = o.id ? String(o.id).trim().toLowerCase() : "";
         return (oNum && oNum === cleanTarget) || (oId && oId === cleanTarget);
       });
@@ -929,7 +953,7 @@ export const adminStore = {
       }
     }
 
-    return result.sort((a, b) => ((b?.timestamp || 0) - (a?.timestamp || 0)));
+    return result.sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
   },
 
   getCustomerLastOrderId(): string | null {
@@ -947,7 +971,9 @@ export const adminStore = {
         safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, customerOrderIds.slice(0, 20));
       }
       localStorage.setItem(STORAGE_KEYS.LAST_ORDER_ID, cleanNum);
-    } catch {}
+    } catch {
+      // storage unavailable
+    }
   },
 
   deleteOrder(orderId: string, orderNumber?: string): boolean {
@@ -987,7 +1013,9 @@ export const adminStore = {
       if (lastId && (lastId === cleanNum || lastId === cleanId)) {
         localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
       }
-    } catch {}
+    } catch {
+      // storage cleanup error ignored
+    }
 
     // 4. Send delete to server API
     fetch("/api/orders/delete", {
@@ -998,7 +1026,7 @@ export const adminStore = {
 
     if (isSupabaseConfigured()) {
       deleteOrderFromSupabase(cleanNum || cleanId).catch((err) =>
-        console.warn("Background Supabase order delete:", err)
+        console.warn("Background Supabase order delete:", err),
       );
     }
 
@@ -1009,7 +1037,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
           detail: { orderId, orderNumber, action: "delete" },
-        })
+        }),
       );
     }
 
@@ -1025,7 +1053,7 @@ export const adminStore = {
   },
 
   addReservation(
-    resInput: Omit<AdminReservation, "id" | "timestamp" | "status" | "reservationNumber">
+    resInput: Omit<AdminReservation, "id" | "timestamp" | "status" | "reservationNumber">,
   ): AdminReservation {
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
     const randomNum = Math.floor(10000 + Math.random() * 90000);
@@ -1061,7 +1089,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_reservation_change", {
           detail: resPayload,
-        })
+        }),
       );
 
       // Background sync to server API so other devices receive it
@@ -1073,7 +1101,7 @@ export const adminStore = {
 
       if (isSupabaseConfigured()) {
         upsertReservationToSupabase(newRes).catch((err) =>
-          console.warn("Background Supabase reservation save:", err)
+          console.warn("Background Supabase reservation save:", err),
         );
       }
     }
@@ -1083,13 +1111,17 @@ export const adminStore = {
 
   async updateReservationStatus(resId: string, status: ReservationStatus): Promise<boolean> {
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
-    const cleanId = String(resId || "").trim().toLowerCase().replace(/^#/, "");
+    const cleanId = String(resId || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^#/, "");
     const idx = reservations.findIndex(
       (r) =>
         r.id === resId ||
         r.reservationNumber === resId ||
         (r.id && r.id.toLowerCase() === cleanId) ||
-        (r.reservationNumber && r.reservationNumber.replace(/^#/, "").trim().toLowerCase() === cleanId)
+        (r.reservationNumber &&
+          r.reservationNumber.replace(/^#/, "").trim().toLowerCase() === cleanId),
     );
     if (idx === -1 || !reservations[idx]) return false;
     reservations[idx]!.status = status;
@@ -1108,7 +1140,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_reservation_change", {
           detail: payload,
-        })
+        }),
       );
 
       if (isSupabaseConfigured()) {
@@ -1139,7 +1171,9 @@ export const adminStore = {
 
   deleteReservation(resId: string, reservationNumber?: string): boolean {
     const cleanId = resId ? String(resId).trim().toLowerCase() : "";
-    const cleanNum = reservationNumber ? String(reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+    const cleanNum = reservationNumber
+      ? String(reservationNumber).replace(/^#/, "").trim().toLowerCase()
+      : "";
 
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
     const filtered = reservations.filter((r) => {
@@ -1170,7 +1204,7 @@ export const adminStore = {
 
     if (isSupabaseConfigured()) {
       deleteReservationFromSupabase(cleanNum || cleanId).catch((err) =>
-        console.warn("Background Supabase reservation delete:", err)
+        console.warn("Background Supabase reservation delete:", err),
       );
     }
 
@@ -1181,7 +1215,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_reservation_change", {
           detail: { resId, reservationNumber, action: "delete" },
-        })
+        }),
       );
     }
     return true;
@@ -1242,7 +1276,7 @@ export const adminStore = {
     const logs = safeGetJSON<VisitorLog[]>(STORAGE_KEYS.VISITOR_LOGS, []);
     const rawTotalViews = parseInt(
       (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEYS.VISITOR_COUNT)) || "0",
-      10
+      10,
     );
     const totalViews = Math.max(rawTotalViews, logs.length);
 
@@ -1426,7 +1460,7 @@ export const adminStore = {
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `Beachwood_Reservations_${new Date().toISOString().slice(0, 10)}.csv`
+      `Beachwood_Reservations_${new Date().toISOString().slice(0, 10)}.csv`,
     );
     document.body.appendChild(link);
     link.click();
@@ -1655,13 +1689,19 @@ export const adminStore = {
 
     try {
       await fetch("/api/clear-all", { method: "POST" });
-    } catch {}
+    } catch {
+      // server clear API offline
+    }
 
     broadcastEvent("clear_all", { timestamp: now });
 
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("bwc_order_change", { detail: { action: "clear_all" } }));
-      window.dispatchEvent(new CustomEvent("bwc_reservation_change", { detail: { action: "clear_all" } }));
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", { detail: { action: "clear_all" } }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("bwc_reservation_change", { detail: { action: "clear_all" } }),
+      );
     }
   },
 
@@ -1674,7 +1714,7 @@ export const adminStore = {
   },
 
   addNotification(
-    notifInput: Omit<AdminNotification, "id" | "timestamp" | "timeFormatted" | "read">
+    notifInput: Omit<AdminNotification, "id" | "timestamp" | "timeFormatted" | "read">,
   ): AdminNotification {
     const notifs = safeGetJSON<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
     const now = Date.now();
@@ -1693,9 +1733,7 @@ export const adminStore = {
     safeSetJSON(STORAGE_KEYS.NOTIFICATIONS, notifs.slice(0, 40));
 
     if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("bwc_notification_added", { detail: newNotif })
-      );
+      window.dispatchEvent(new CustomEvent("bwc_notification_added", { detail: newNotif }));
     }
     return newNotif;
   },
@@ -1725,9 +1763,7 @@ export const adminStore = {
   setSoundAlertEnabled(enabled: boolean): void {
     if (typeof window === "undefined") return;
     localStorage.setItem(STORAGE_KEYS.SOUND_ENABLED, enabled ? "true" : "false");
-    window.dispatchEvent(
-      new CustomEvent("bwc_sound_preference_changed", { detail: { enabled } })
-    );
+    window.dispatchEvent(new CustomEvent("bwc_sound_preference_changed", { detail: { enabled } }));
   },
 
   // --------------------------------------------------------------------------
@@ -1765,7 +1801,7 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_unviewed_change", {
             detail: { type: "order", id: clean, action: "add" },
-          })
+          }),
         );
       }
     }
@@ -1786,7 +1822,7 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_unviewed_change", {
             detail: { type: "order", id: clean, action: "remove" },
-          })
+          }),
         );
       }
     }
@@ -1799,7 +1835,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_unviewed_change", {
           detail: { type: "order", action: "clear_all" },
-        })
+        }),
       );
     }
   },
@@ -1816,7 +1852,8 @@ export const adminStore = {
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
     const validKeys = new Set<string>();
     for (const r of reservations) {
-      if (r.reservationNumber) validKeys.add(r.reservationNumber.replace(/^#/, "").trim().toLowerCase());
+      if (r.reservationNumber)
+        validKeys.add(r.reservationNumber.replace(/^#/, "").trim().toLowerCase());
       if (r.id) validKeys.add(r.id.trim().toLowerCase());
     }
     const filtered = raw.filter((id) => {
@@ -1843,7 +1880,7 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_unviewed_change", {
             detail: { type: "reservation", id: clean, action: "add" },
-          })
+          }),
         );
       }
     }
@@ -1864,7 +1901,7 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_unviewed_change", {
             detail: { type: "reservation", id: clean, action: "remove" },
-          })
+          }),
         );
       }
     }
@@ -1877,7 +1914,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_unviewed_change", {
           detail: { type: "reservation", action: "clear_all" },
-        })
+        }),
       );
     }
   },
@@ -1925,11 +1962,21 @@ export const adminStore = {
       if (resData?.orders && Array.isArray(resData.orders)) {
         for (const ro of resData.orders) {
           if (!ro) continue;
-          const roNum = String(ro.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-          const roId = String(ro.id || "").trim().toLowerCase();
+          const roNum = String(ro.orderNumber || "")
+            .replace(/^#/, "")
+            .trim()
+            .toLowerCase();
+          const roId = String(ro.id || "")
+            .trim()
+            .toLowerCase();
           const existingIdx = remoteOrders.findIndex((o) => {
-            const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-            const oId = String(o.id || "").trim().toLowerCase();
+            const oNum = String(o.orderNumber || "")
+              .replace(/^#/, "")
+              .trim()
+              .toLowerCase();
+            const oId = String(o.id || "")
+              .trim()
+              .toLowerCase();
             return (roNum && oNum && roNum === oNum) || (roId && oId && roId === oId);
           });
           if (existingIdx === -1) {
@@ -1954,11 +2001,21 @@ export const adminStore = {
       if (resData?.reservations && Array.isArray(resData.reservations)) {
         for (const rr of resData.reservations) {
           if (!rr) continue;
-          const rrNum = String(rr.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
-          const rrId = String(rr.id || "").trim().toLowerCase();
+          const rrNum = String(rr.reservationNumber || "")
+            .replace(/^#/, "")
+            .trim()
+            .toLowerCase();
+          const rrId = String(rr.id || "")
+            .trim()
+            .toLowerCase();
           const existingIdx = remoteReservations.findIndex((r) => {
-            const rNum = String(r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
-            const rId = String(r.id || "").trim().toLowerCase();
+            const rNum = String(r.reservationNumber || "")
+              .replace(/^#/, "")
+              .trim()
+              .toLowerCase();
+            const rId = String(r.id || "")
+              .trim()
+              .toLowerCase();
             return (rrNum && rNum && rrNum === rNum) || (rrId && rId && rrId === rId);
           });
           if (existingIdx === -1) {
@@ -2002,7 +2059,9 @@ export const adminStore = {
 
         const existingIdx = mergedOrders.findIndex((o) => {
           if (!o) return false;
-          const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const oNum = o.orderNumber
+            ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
           const oId = o.id ? String(o.id).trim().toLowerCase() : "";
           // Strict exact matching: orderNumber matches orderNumber, or id matches id
           if (cleanRemoteNum && oNum === cleanRemoteNum) return true;
@@ -2024,12 +2083,12 @@ export const adminStore = {
 
             const matchesTarget = Boolean(
               cleanTarget &&
-                (cleanRemoteNum === cleanTarget ||
-                  cleanRemoteId === cleanTarget ||
-                  (cleanTargetDigits.length >= 10 &&
-                    (remote.customerPhone || "")
-                      .replace(/\D/g, "")
-                      .includes(cleanTargetDigits.slice(-10))))
+              (cleanRemoteNum === cleanTarget ||
+                cleanRemoteId === cleanTarget ||
+                (cleanTargetDigits.length >= 10 &&
+                  (remote.customerPhone || "")
+                    .replace(/\D/g, "")
+                    .includes(cleanTargetDigits.slice(-10)))),
             );
 
             if (isMine || matchesTarget) {
@@ -2103,7 +2162,9 @@ export const adminStore = {
 
         const existingIdx = mergedReservations.findIndex((r) => {
           if (!r) return false;
-          const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const rNum = r.reservationNumber
+            ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
           const rId = r.id ? String(r.id).trim().toLowerCase() : "";
           if (cleanRemoteResNum && rNum === cleanRemoteResNum) return true;
           if (cleanRemoteId && rId === cleanRemoteId) return true;
@@ -2128,7 +2189,7 @@ export const adminStore = {
       if (newOrdersCount > 0 || updatedOrdersCount > 0) {
         safeSetJSON(
           STORAGE_KEYS.ORDERS,
-          mergedOrders.sort((a, b) => b.timestamp - a.timestamp)
+          mergedOrders.sort((a, b) => b.timestamp - a.timestamp),
         );
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
@@ -2137,14 +2198,14 @@ export const adminStore = {
               newCount: newOrdersCount,
               updatedCount: updatedOrdersCount,
             },
-          })
+          }),
         );
       }
 
       if (newReservationsCount > 0 || updatedReservationsCount > 0) {
         safeSetJSON(
           STORAGE_KEYS.RESERVATIONS,
-          mergedReservations.sort((a, b) => b.timestamp - a.timestamp)
+          mergedReservations.sort((a, b) => b.timestamp - a.timestamp),
         );
         window.dispatchEvent(
           new CustomEvent("bwc_reservation_change", {
@@ -2153,21 +2214,25 @@ export const adminStore = {
               newCount: newReservationsCount,
               updatedCount: updatedReservationsCount,
             },
-          })
+          }),
         );
       }
 
       // 2. Also ensure server has our local orders and reservations (push only truly missing items)
       const unpushedOrders = localOrders.filter((lo) => {
         if (!lo) return false;
-        const cleanLo = lo.orderNumber ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+        const cleanLo = lo.orderNumber
+          ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
         const cleanId = lo.id ? String(lo.id).trim().toLowerCase() : "";
         if (cleanLo && deletedOrderIds.includes(cleanLo)) return false;
         if (cleanId && deletedOrderIds.includes(cleanId)) return false;
         if (clearedAt && lo.timestamp && lo.timestamp <= clearedAt) return false;
         return !remoteOrders.some((ro) => {
           if (!ro) return false;
-          const cleanRo = ro.orderNumber ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const cleanRo = ro.orderNumber
+            ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
           const cleanRoId = ro.id ? String(ro.id).trim().toLowerCase() : "";
           if (cleanLo && cleanRo === cleanLo) return true;
           if (cleanId && cleanRoId === cleanId) return true;
@@ -2256,7 +2321,8 @@ export const adminStore = {
             orders[idx]!.status = payload.status;
             orders[idx]!.statusUpdatedAt = Math.max(currentUpdated, incomingUpdated);
             if (payload.cancelledBy) orders[idx]!.cancelledBy = payload.cancelledBy;
-            if (payload.cancellationReason) orders[idx]!.cancellationReason = payload.cancellationReason;
+            if (payload.cancellationReason)
+              orders[idx]!.cancellationReason = payload.cancellationReason;
             if (payload.cancelledAt) orders[idx]!.cancelledAt = payload.cancelledAt;
 
             safeSetJSON(STORAGE_KEYS.ORDERS, orders);
@@ -2267,7 +2333,7 @@ export const adminStore = {
                   orderNumber: orders[idx]!.orderNumber,
                   orderId: orders[idx]!.id,
                 },
-              })
+              }),
             );
           }
         }
@@ -2278,7 +2344,7 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
             detail: payload,
-          })
+          }),
         );
       }
     } else if (type === "order_add" && payload.order) {
@@ -2286,7 +2352,10 @@ export const adminStore = {
       if (!this.isAuthenticated()) {
         return;
       }
-      const cleanIncoming = String(payload.order.orderNumber).replace(/^#/, "").trim().toLowerCase();
+      const cleanIncoming = String(payload.order.orderNumber)
+        .replace(/^#/, "")
+        .trim()
+        .toLowerCase();
       const cleanIncomingId = payload.order.id ? String(payload.order.id).trim().toLowerCase() : "";
       const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
       if (cleanIncoming && deletedOrderIds.includes(cleanIncoming)) return;
@@ -2301,7 +2370,7 @@ export const adminStore = {
       const exists = orders.some(
         (o) =>
           o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanIncoming ||
-          o.id === payload.order.id
+          o.id === payload.order.id,
       );
       if (!exists) {
         orders.unshift(payload.order);
@@ -2309,13 +2378,15 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
             detail: payload,
-          })
+          }),
         );
       }
     } else if (type === "order_cancel" && payload.orderNumber) {
       const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const cleanNum = String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase();
-      const idx = orders.findIndex((o) => o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum);
+      const idx = orders.findIndex(
+        (o) => o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum,
+      );
       if (idx !== -1 && orders[idx] && orders[idx]!.status !== "cancelled") {
         orders[idx]!.status = "cancelled";
         orders[idx]!.cancelledBy = payload.by || "customer";
@@ -2324,11 +2395,13 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
             detail: payload,
-          })
+          }),
         );
       }
     } else if (type === "order_delete") {
-      const cleanNum = payload.orderNumber ? String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+      const cleanNum = payload.orderNumber
+        ? String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase()
+        : "";
       const cleanId = payload.orderId ? String(payload.orderId).trim().toLowerCase() : "";
       const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const filtered = orders.filter((o) => {
@@ -2348,13 +2421,13 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
           detail: { ...payload, action: "delete" },
-        })
+        }),
       );
     } else if (type === "reservation_status" && payload.reservationNumber) {
       const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
       const cleanNum = String(payload.reservationNumber).replace(/^#/, "").trim().toLowerCase();
       const idx = reservations.findIndex(
-        (r) => r.reservationNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum
+        (r) => r.reservationNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum,
       );
       if (idx !== -1 && reservations[idx] && reservations[idx]!.status !== payload.status) {
         reservations[idx]!.status = payload.status;
@@ -2362,12 +2435,17 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_reservation_change", {
             detail: payload,
-          })
+          }),
         );
       }
     } else if (type === "reservation_add" && payload.reservation) {
-      const cleanIncoming = String(payload.reservation.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
-      const cleanIncomingId = payload.reservation.id ? String(payload.reservation.id).trim().toLowerCase() : "";
+      const cleanIncoming = String(payload.reservation.reservationNumber || "")
+        .replace(/^#/, "")
+        .trim()
+        .toLowerCase();
+      const cleanIncomingId = payload.reservation.id
+        ? String(payload.reservation.id).trim().toLowerCase()
+        : "";
       const deletedResIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
       if (cleanIncoming && deletedResIds.includes(cleanIncoming)) return;
       if (cleanIncomingId && deletedResIds.includes(cleanIncomingId)) return;
@@ -2375,7 +2453,8 @@ export const adminStore = {
         typeof window !== "undefined"
           ? parseInt(localStorage.getItem(STORAGE_KEYS.DATA_CLEARED_AT) || "0", 10)
           : 0;
-      if (clearedAt && payload.reservation.timestamp && payload.reservation.timestamp <= clearedAt) return;
+      if (clearedAt && payload.reservation.timestamp && payload.reservation.timestamp <= clearedAt)
+        return;
 
       const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
       const exists = reservations.some((r) => r.id === payload.reservation.id);
@@ -2385,11 +2464,13 @@ export const adminStore = {
         window.dispatchEvent(
           new CustomEvent("bwc_reservation_change", {
             detail: payload,
-          })
+          }),
         );
       }
     } else if (type === "reservation_delete") {
-      const cleanNum = payload.reservationNumber ? String(payload.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+      const cleanNum = payload.reservationNumber
+        ? String(payload.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+        : "";
       const cleanId = payload.resId ? String(payload.resId).trim().toLowerCase() : "";
       const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
       const filtered = reservations.filter((r) => {
@@ -2409,7 +2490,7 @@ export const adminStore = {
       window.dispatchEvent(
         new CustomEvent("bwc_reservation_change", {
           detail: { ...payload, action: "delete" },
-        })
+        }),
       );
     } else if (type === "clear_all") {
       safeSetJSON(STORAGE_KEYS.ORDERS, []);
@@ -2425,8 +2506,12 @@ export const adminStore = {
           localStorage.setItem(STORAGE_KEYS.DATA_CLEARED_AT, String(payload.timestamp));
         }
       }
-      window.dispatchEvent(new CustomEvent("bwc_order_change", { detail: { action: "clear_all" } }));
-      window.dispatchEvent(new CustomEvent("bwc_reservation_change", { detail: { action: "clear_all" } }));
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", { detail: { action: "clear_all" } }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("bwc_reservation_change", { detail: { action: "clear_all" } }),
+      );
     }
   },
 };
@@ -2451,7 +2536,9 @@ if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
               adminStore.handleIncomingCloudEvent(data.type, data.payload);
             }
           }
-        } catch {}
+        } catch {
+          // malformed SSE packet
+        }
       };
       cloudEventSource.onerror = () => {
         if (cloudEventSource) {
@@ -2460,7 +2547,9 @@ if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
         }
         setTimeout(connectCloudSSE, 4000);
       };
-    } catch {}
+    } catch {
+      // EventSource initialization failed
+    }
   };
   connectCloudSSE();
 }
@@ -2477,11 +2566,17 @@ export function initSupabaseSync() {
     subscribeToSupabaseRealtime({
       onOrderInserted: (order) => {
         if (!order) return;
-        const newNum = String(order.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const newNum = String(order.orderNumber || "")
+          .replace(/^#/, "")
+          .trim()
+          .toLowerCase();
         const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
         const exists = orders.some((o) => {
           if (!o) return false;
-          const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+          const oNum = String(o.orderNumber || "")
+            .replace(/^#/, "")
+            .trim()
+            .toLowerCase();
           return (oNum && newNum && oNum === newNum) || (o.id && order.id && o.id === order.id);
         });
         if (!exists) {
@@ -2491,18 +2586,26 @@ export function initSupabaseSync() {
           window.dispatchEvent(
             new CustomEvent("bwc_order_change", {
               detail: { orderNumber: order.orderNumber, action: "add", order },
-            })
+            }),
           );
         }
       },
       onOrderUpdated: (order) => {
         if (!order) return;
-        const targetNum = String(order.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const targetNum = String(order.orderNumber || "")
+          .replace(/^#/, "")
+          .trim()
+          .toLowerCase();
         const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
         const idx = orders.findIndex((o) => {
           if (!o) return false;
-          const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-          return (oNum && targetNum && oNum === targetNum) || (o.id && order.id && o.id === order.id);
+          const oNum = String(o.orderNumber || "")
+            .replace(/^#/, "")
+            .trim()
+            .toLowerCase();
+          return (
+            (oNum && targetNum && oNum === targetNum) || (o.id && order.id && o.id === order.id)
+          );
         });
         if (idx !== -1) {
           const current = orders[idx]!;
@@ -2538,18 +2641,22 @@ export function initSupabaseSync() {
                 status: orders[idx]!.status,
                 order: orders[idx],
               },
-            })
+            }),
           );
         }
       },
       onOrderDeleted: (id, orderNumber) => {
         const cleanId = String(id || "").toLowerCase();
-        const cleanNum = String(orderNumber || "").replace(/^#/, "").toLowerCase();
+        const cleanNum = String(orderNumber || "")
+          .replace(/^#/, "")
+          .toLowerCase();
         const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
         const filtered = orders.filter((o) => {
           if (!o) return false;
           const oId = String(o.id || "").toLowerCase();
-          const oNum = String(o.orderNumber || "").replace(/^#/, "").toLowerCase();
+          const oNum = String(o.orderNumber || "")
+            .replace(/^#/, "")
+            .toLowerCase();
           if (cleanNum && oNum === cleanNum) return false;
           if (cleanId && oId === cleanId) return false;
           return true;
@@ -2558,16 +2665,22 @@ export function initSupabaseSync() {
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
             detail: { orderId: id, orderNumber, action: "delete" },
-          })
+          }),
         );
       },
       onReservationInserted: (res) => {
         if (!res) return;
-        const newNum = String(res.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const newNum = String(res.reservationNumber || "")
+          .replace(/^#/, "")
+          .trim()
+          .toLowerCase();
         const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
         const exists = reservations.some((r) => {
           if (!r) return false;
-          const rNum = String(r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+          const rNum = String(r.reservationNumber || "")
+            .replace(/^#/, "")
+            .trim()
+            .toLowerCase();
           return (rNum && newNum && rNum === newNum) || (r.id && res.id && r.id === res.id);
         });
         if (!exists) {
@@ -2577,17 +2690,23 @@ export function initSupabaseSync() {
           window.dispatchEvent(
             new CustomEvent("bwc_reservation_change", {
               detail: { reservationNumber: res.reservationNumber, action: "add", reservation: res },
-            })
+            }),
           );
         }
       },
       onReservationUpdated: (res) => {
         if (!res) return;
-        const targetNum = String(res.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const targetNum = String(res.reservationNumber || "")
+          .replace(/^#/, "")
+          .trim()
+          .toLowerCase();
         const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
         const idx = reservations.findIndex((r) => {
           if (!r) return false;
-          const rNum = String(r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+          const rNum = String(r.reservationNumber || "")
+            .replace(/^#/, "")
+            .trim()
+            .toLowerCase();
           return (rNum && targetNum && rNum === targetNum) || (r.id && res.id && r.id === res.id);
         });
         if (idx !== -1) {
@@ -2601,18 +2720,22 @@ export function initSupabaseSync() {
                 status: res.status,
                 reservation: res,
               },
-            })
+            }),
           );
         }
       },
       onReservationDeleted: (id, reservationNumber) => {
         const cleanId = String(id || "").toLowerCase();
-        const cleanNum = String(reservationNumber || "").replace(/^#/, "").toLowerCase();
+        const cleanNum = String(reservationNumber || "")
+          .replace(/^#/, "")
+          .toLowerCase();
         const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
         const filtered = reservations.filter((r) => {
           if (!r) return false;
           const rId = String(r.id || "").toLowerCase();
-          const rNum = String(r.reservationNumber || "").replace(/^#/, "").toLowerCase();
+          const rNum = String(r.reservationNumber || "")
+            .replace(/^#/, "")
+            .toLowerCase();
           if (cleanNum && rNum === cleanNum) return false;
           if (cleanId && rId === cleanId) return false;
           return true;
@@ -2621,7 +2744,7 @@ export function initSupabaseSync() {
         window.dispatchEvent(
           new CustomEvent("bwc_reservation_change", {
             detail: { resId: id, reservationNumber, action: "delete" },
-          })
+          }),
         );
       },
     });

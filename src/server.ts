@@ -96,7 +96,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           reservations: serverReservations,
           timestamp: Date.now(),
         }),
-        { status: 200, headers: corsHeaders }
+        { status: 200, headers: corsHeaders },
       );
     }
   }
@@ -110,7 +110,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           orders: serverOrders,
           total: serverOrders.length,
         }),
-        { status: 200, headers: corsHeaders }
+        { status: 200, headers: corsHeaders },
       );
     }
 
@@ -120,8 +120,8 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
         const incomingOrders: StoredOrder[] = Array.isArray(body?.orders)
           ? body.orders
           : body?.order
-          ? [body.order]
-          : [];
+            ? [body.order]
+            : [];
 
         for (const ord of incomingOrders) {
           if (!ord) continue;
@@ -137,7 +137,9 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
           const idx = serverOrders.findIndex((o) => {
             if (!o) return false;
-            const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+            const oNum = o.orderNumber
+              ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
+              : "";
             const oId = o.id ? String(o.id).trim().toLowerCase() : "";
             if (cleanIncomingNum && oNum === cleanIncomingNum) return true;
             if (cleanIncomingId && oId === cleanIncomingId) return true;
@@ -153,7 +155,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             serverOrders[idx] = {
               ...existing,
               ...ord,
-              status: isExistingNewer ? existing.status : (ord.status || existing.status),
+              status: isExistingNewer ? existing.status : ord.status || existing.status,
               statusUpdatedAt: Math.max(existingUpdated, incomingUpdated),
               cancelledBy: ord.cancelledBy || existing.cancelledBy,
               cancelledAt: ord.cancelledAt || existing.cancelledAt,
@@ -173,12 +175,12 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             count: serverOrders.length,
             orders: serverOrders,
           }),
-          { status: 200, headers: corsHeaders }
+          { status: 200, headers: corsHeaders },
         );
       } catch (err: any) {
         return new Response(
           JSON.stringify({ success: false, error: err?.message || "Invalid JSON" }),
-          { status: 400, headers: corsHeaders }
+          { status: 400, headers: corsHeaders },
         );
       }
     }
@@ -188,13 +190,22 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   if (path === "/api/orders/update-status") {
     if (request.method === "POST") {
       try {
-        const { orderId, orderNumber, status, statusUpdatedAt, cancelledBy, cancellationReason } = await request.json();
-        const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
-        const cleanNum = String(orderNumber || "").trim().toLowerCase().replace(/^#/, "");
+        const { orderId, orderNumber, status, statusUpdatedAt, cancelledBy, cancellationReason } =
+          await request.json();
+        const cleanId = String(orderId || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "");
+        const cleanNum = String(orderNumber || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "");
 
         const idx = serverOrders.findIndex((o) => {
           if (!o) return false;
-          const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const oNum = o.orderNumber
+            ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
           const oId = o.id ? String(o.id).trim().toLowerCase() : "";
 
           // Exact orderNumber matches take top priority
@@ -213,10 +224,10 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             ord["cancelledAt"] = Date.now();
             ord["cancellationReason"] = cancellationReason;
           }
-          return new Response(
-            JSON.stringify({ success: true, order: ord }),
-            { status: 200, headers: corsHeaders }
-          );
+          return new Response(JSON.stringify({ success: true, order: ord }), {
+            status: 200,
+            headers: corsHeaders,
+          });
         }
 
         // If order wasn't in ephemeral memory, create an entry so future /api/sync returns it
@@ -226,20 +237,20 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           timestamp: Date.now(),
           status,
           statusUpdatedAt: statusUpdatedAt || Date.now(),
-          cancelledBy: status === "cancelled" ? (cancelledBy || "admin") : undefined,
+          cancelledBy: status === "cancelled" ? cancelledBy || "admin" : undefined,
           cancelledAt: status === "cancelled" ? Date.now() : undefined,
           cancellationReason,
         };
         serverOrders.unshift(newOrd);
-        return new Response(
-          JSON.stringify({ success: true, order: newOrd, created: true }),
-          { status: 200, headers: corsHeaders }
-        );
+        return new Response(JSON.stringify({ success: true, order: newOrd, created: true }), {
+          status: 200,
+          headers: corsHeaders,
+        });
       } catch (err: any) {
-        return new Response(
-          JSON.stringify({ success: false, error: err?.message }),
-          { status: 400, headers: corsHeaders }
-        );
+        return new Response(JSON.stringify({ success: false, error: err?.message }), {
+          status: 400,
+          headers: corsHeaders,
+        });
       }
     }
   }
@@ -249,8 +260,13 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
     if (request.method === "POST") {
       try {
         const body = await request.json();
-        const cleanId = String(body?.orderId || "").trim().toLowerCase();
-        const cleanNum = String(body?.orderNumber || "").trim().toLowerCase().replace(/^#/, "");
+        const cleanId = String(body?.orderId || "")
+          .trim()
+          .toLowerCase();
+        const cleanNum = String(body?.orderNumber || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "");
 
         if (cleanId) serverDeletedOrderIds.add(cleanId);
         if (cleanNum) serverDeletedOrderIds.add(cleanNum);
@@ -258,7 +274,9 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
         const prevCount = serverOrders.length;
         serverOrders = serverOrders.filter((o) => {
           if (!o) return false;
-          const oNum = o.orderNumber ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const oNum = o.orderNumber
+            ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
           const oId = o.id ? String(o.id).trim().toLowerCase() : "";
           if (cleanNum && oNum === cleanNum) return false;
           if (cleanId && oId === cleanId) return false;
@@ -271,13 +289,13 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             deletedCount: prevCount - serverOrders.length,
             remaining: serverOrders.length,
           }),
-          { status: 200, headers: corsHeaders }
+          { status: 200, headers: corsHeaders },
         );
       } catch (err: any) {
-        return new Response(
-          JSON.stringify({ success: false, error: err?.message }),
-          { status: 400, headers: corsHeaders }
-        );
+        return new Response(JSON.stringify({ success: false, error: err?.message }), {
+          status: 400,
+          headers: corsHeaders,
+        });
       }
     }
   }
@@ -291,7 +309,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           reservations: serverReservations,
           total: serverReservations.length,
         }),
-        { status: 200, headers: corsHeaders }
+        { status: 200, headers: corsHeaders },
       );
     }
 
@@ -301,8 +319,8 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
         const incomingReservations: StoredReservation[] = Array.isArray(body?.reservations)
           ? body.reservations
           : body?.reservation
-          ? [body.reservation]
-          : [];
+            ? [body.reservation]
+            : [];
 
         for (const res of incomingReservations) {
           if (!res) continue;
@@ -318,7 +336,9 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
           const idx = serverReservations.findIndex((r) => {
             if (!r) return false;
-            const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+            const rNum = r.reservationNumber
+              ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+              : "";
             const rId = r.id ? String(r.id).trim().toLowerCase() : "";
             if (cleanIncomingNum && rNum === cleanIncomingNum) return true;
             if (cleanIncomingId && rId === cleanIncomingId) return true;
@@ -328,14 +348,14 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           if (idx !== -1) {
             const existing = serverReservations[idx]!;
             const shouldPreserveExistingStatus =
-              existing.status &&
-              existing.status !== "pending" &&
-              res.status === "pending";
+              existing.status && existing.status !== "pending" && res.status === "pending";
 
             serverReservations[idx] = {
               ...existing,
               ...res,
-              status: shouldPreserveExistingStatus ? existing.status : (res.status || existing.status),
+              status: shouldPreserveExistingStatus
+                ? existing.status
+                : res.status || existing.status,
             };
           } else {
             serverReservations.unshift(res);
@@ -351,12 +371,12 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             count: serverReservations.length,
             reservations: serverReservations,
           }),
-          { status: 200, headers: corsHeaders }
+          { status: 200, headers: corsHeaders },
         );
       } catch (err: any) {
         return new Response(
           JSON.stringify({ success: false, error: err?.message || "Invalid JSON" }),
-          { status: 400, headers: corsHeaders }
+          { status: 400, headers: corsHeaders },
         );
       }
     }
@@ -367,12 +387,20 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
     if (request.method === "POST") {
       try {
         const { resId, reservationNumber, status } = await request.json();
-        const cleanId = String(resId || "").trim().toLowerCase().replace(/^#/, "");
-        const cleanNum = String(reservationNumber || "").trim().toLowerCase().replace(/^#/, "");
+        const cleanId = String(resId || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "");
+        const cleanNum = String(reservationNumber || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "");
 
         const idx = serverReservations.findIndex((r) => {
           if (!r) return false;
-          const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const rNum = r.reservationNumber
+            ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
           const rId = r.id ? String(r.id).trim().toLowerCase() : "";
           if (cleanNum && rNum === cleanNum) return true;
           if (cleanId && rId === cleanId) return true;
@@ -382,20 +410,20 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
         if (idx !== -1 && serverReservations[idx]) {
           const res = serverReservations[idx]!;
           res["status"] = status;
-          return new Response(
-            JSON.stringify({ success: true, reservation: res }),
-            { status: 200, headers: corsHeaders }
-          );
+          return new Response(JSON.stringify({ success: true, reservation: res }), {
+            status: 200,
+            headers: corsHeaders,
+          });
         }
-        return new Response(
-          JSON.stringify({ success: false, message: "Reservation not found" }),
-          { status: 404, headers: corsHeaders }
-        );
+        return new Response(JSON.stringify({ success: false, message: "Reservation not found" }), {
+          status: 404,
+          headers: corsHeaders,
+        });
       } catch (err: any) {
-        return new Response(
-          JSON.stringify({ success: false, error: err?.message }),
-          { status: 400, headers: corsHeaders }
-        );
+        return new Response(JSON.stringify({ success: false, error: err?.message }), {
+          status: 400,
+          headers: corsHeaders,
+        });
       }
     }
   }
@@ -405,8 +433,13 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
     if (request.method === "POST") {
       try {
         const body = await request.json();
-        const cleanId = String(body?.resId || "").trim().toLowerCase();
-        const cleanNum = String(body?.reservationNumber || "").trim().toLowerCase().replace(/^#/, "");
+        const cleanId = String(body?.resId || "")
+          .trim()
+          .toLowerCase();
+        const cleanNum = String(body?.reservationNumber || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "");
 
         if (cleanId) serverDeletedResIds.add(cleanId);
         if (cleanNum) serverDeletedResIds.add(cleanNum);
@@ -414,7 +447,9 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
         const prevCount = serverReservations.length;
         serverReservations = serverReservations.filter((r) => {
           if (!r) return false;
-          const rNum = r.reservationNumber ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const rNum = r.reservationNumber
+            ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
           const rId = r.id ? String(r.id).trim().toLowerCase() : "";
           if (cleanNum && rNum === cleanNum) return false;
           if (cleanId && rId === cleanId) return false;
@@ -427,13 +462,13 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             deletedCount: prevCount - serverReservations.length,
             remaining: serverReservations.length,
           }),
-          { status: 200, headers: corsHeaders }
+          { status: 200, headers: corsHeaders },
         );
       } catch (err: any) {
-        return new Response(
-          JSON.stringify({ success: false, error: err?.message }),
-          { status: 400, headers: corsHeaders }
-        );
+        return new Response(JSON.stringify({ success: false, error: err?.message }), {
+          status: 400,
+          headers: corsHeaders,
+        });
       }
     }
   }
@@ -448,7 +483,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
       serverClearedAt = Date.now();
       return new Response(
         JSON.stringify({ success: true, message: "All server orders and reservations cleared" }),
-        { status: 200, headers: corsHeaders }
+        { status: 200, headers: corsHeaders },
       );
     }
   }

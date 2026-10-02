@@ -70,12 +70,7 @@ export const Route = createFileRoute("/admin")({
 type TabType = "overview" | "orders" | "reservations" | "visitors" | "whatsapp";
 
 type ResWhatsAppTemplate =
-  | "confirmed"
-  | "seated"
-  | "completed"
-  | "cancelled"
-  | "reminder"
-  | "custom";
+  "confirmed" | "seated" | "completed" | "cancelled" | "reminder" | "custom";
 
 // Helper: Clean phone number digits
 function cleanPhoneDigits(phone: string): string {
@@ -86,7 +81,7 @@ function cleanPhoneDigits(phone: string): string {
 function formatWhatsAppTargetPhone(
   rawPhone: string,
   codeChoice: "auto" | "1" | "91" | "custom",
-  customDigits?: string
+  customDigits?: string,
 ): string {
   if (codeChoice === "custom" && customDigits) {
     return customDigits.replace(/[^0-9]/g, "");
@@ -121,10 +116,7 @@ function formatWhatsAppTargetPhone(
 }
 
 // Helper: Generate structured WhatsApp update message for reservations
-function generateResWhatsAppMessage(
-  res: AdminReservation,
-  template: ResWhatsAppTemplate
-): string {
+function generateResWhatsAppMessage(res: AdminReservation, template: ResWhatsAppTemplate): string {
   const cafeName = "Beachwood Cafe";
   const address = "2695 N Beachwood Dr, Los Angeles, CA 90068";
   const contact = "(323) 871-1717";
@@ -209,10 +201,10 @@ export function AdminPage() {
 
   // Site Operational Status (Maintenance / Kill Switch)
   const [maintenanceConfig, setMaintenanceConfig] = useState(() =>
-    adminStore.getMaintenanceConfig()
+    adminStore.getMaintenanceConfig(),
   );
   const [customMaintenanceMsg, setCustomMaintenanceMsg] = useState(
-    () => adminStore.getMaintenanceConfig().message
+    () => adminStore.getMaintenanceConfig().message,
   );
   const [showEditMsg, setShowEditMsg] = useState<boolean>(false);
 
@@ -241,7 +233,9 @@ export function AdminPage() {
   const [whatsAppRes, setWhatsAppRes] = useState<AdminReservation | null>(null);
   const [whatsAppTemplate, setWhatsAppTemplate] = useState<ResWhatsAppTemplate>("confirmed");
   const [whatsAppPhone, setWhatsAppPhone] = useState<string>("");
-  const [whatsAppCountryCode, setWhatsAppCountryCode] = useState<"auto" | "1" | "91" | "custom">("auto");
+  const [whatsAppCountryCode, setWhatsAppCountryCode] = useState<"auto" | "1" | "91" | "custom">(
+    "auto",
+  );
   const [whatsAppMessageText, setWhatsAppMessageText] = useState<string>("");
   const [sendWhatsAppOnSave, setSendWhatsAppOnSave] = useState<boolean>(true);
   const [statusUpdateToast, setStatusUpdateToast] = useState<{
@@ -253,7 +247,7 @@ export function AdminPage() {
 
   const handleOpenResWhatsApp = (
     res: AdminReservation,
-    template: ResWhatsAppTemplate = "confirmed"
+    template: ResWhatsAppTemplate = "confirmed",
   ) => {
     setWhatsAppRes(res);
     const resolvedTemplate =
@@ -399,7 +393,9 @@ export function AdminPage() {
       if (Notification.permission === "granted") {
         try {
           new Notification(title, { body });
-        } catch {}
+        } catch {
+          // notification API blocked or unavailable
+        }
       } else if (Notification.permission === "default") {
         Notification.requestPermission();
       }
@@ -450,7 +446,7 @@ export function AdminPage() {
         flashTabTitle(`NEW ORDER #${e.detail.orderNumber}!`);
         triggerDesktopNotification(
           "Beachwood Cafe: New Online Order!",
-          `Order #${e.detail.orderNumber} placed by ${e.detail.order?.customerName || "Customer"}`
+          `Order #${e.detail.orderNumber} placed by ${e.detail.order?.customerName || "Customer"}`,
         );
 
         const title = `🔔 NEW ONLINE ORDER #${e.detail.orderNumber}!`;
@@ -481,7 +477,7 @@ export function AdminPage() {
         flashTabTitle(`NEW RESERVATION #${e.detail.reservationNumber}!`);
         triggerDesktopNotification(
           "Beachwood Cafe: New Table Booking!",
-          `Table #${e.detail.reservationNumber} for ${e.detail.reservation?.fullName} (${e.detail.reservation?.partySize})`
+          `Table #${e.detail.reservationNumber} for ${e.detail.reservation?.fullName} (${e.detail.reservation?.partySize})`,
         );
 
         const title = `📅 NEW TABLE BOOKING #${e.detail.reservationNumber}!`;
@@ -575,7 +571,7 @@ export function AdminPage() {
         res.syncedOrders + res.updatedOrders + res.syncedReservations + res.updatedReservations;
       if (totalChanges > 0) {
         showNotification(
-          `🔄 Synced with cloud server: ${res.syncedOrders + res.updatedOrders} order(s), ${res.syncedReservations + res.updatedReservations} reservation(s).`
+          `🔄 Synced with cloud server: ${res.syncedOrders + res.updatedOrders} order(s), ${res.syncedReservations + res.updatedReservations} reservation(s).`,
         );
       } else {
         showNotification("✅ Admin data is up to date with cloud server.");
@@ -632,20 +628,17 @@ export function AdminPage() {
     setMaintenanceConfig(updated);
     if (nextEnabled) {
       showNotification(
-        "⛔ Website is now PAUSED (Maintenance Mode). Visitors cannot access the site."
+        "⛔ Website is now PAUSED (Maintenance Mode). Visitors cannot access the site.",
       );
     } else {
       showNotification(
-        "✅ Website is now LIVE & ACTIVE! Normal visitors can browse, order, and book."
+        "✅ Website is now LIVE & ACTIVE! Normal visitors can browse, order, and book.",
       );
     }
   };
 
   const handleSaveMaintenanceMsg = () => {
-    const updated = adminStore.setMaintenanceMode(
-      maintenanceConfig.enabled,
-      customMaintenanceMsg
-    );
+    const updated = adminStore.setMaintenanceMode(maintenanceConfig.enabled, customMaintenanceMsg);
     setMaintenanceConfig(updated);
     setShowEditMsg(false);
     showNotification("Custom maintenance announcement saved!");
@@ -687,7 +680,7 @@ export function AdminPage() {
   const handleClearAllData = async () => {
     if (
       window.confirm(
-        "Are you sure you want to permanently clear ALL orders, table bookings and activity logs? This will reset data from both this device and the cloud server."
+        "Are you sure you want to permanently clear ALL orders, table bookings and activity logs? This will reset data from both this device and the cloud server.",
       )
     ) {
       await adminStore.clearAllData();
@@ -703,9 +696,12 @@ export function AdminPage() {
   const handleUpdateOrderStatus = async (
     orderId: string,
     status: OrderStatus,
-    orderNumber?: string
+    orderNumber?: string,
   ) => {
-    const cleanId = String(orderId || "").trim().toLowerCase().replace(/^#/, "");
+    const cleanId = String(orderId || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^#/, "");
     const cleanNum = orderNumber ? String(orderNumber).trim().toLowerCase().replace(/^#/, "") : "";
     const now = Date.now();
 
@@ -718,7 +714,7 @@ export function AdminPage() {
         const oId = (o.id || "").trim().toLowerCase();
         const isMatch = (cleanNum && oNum === cleanNum) || (cleanId && oId === cleanId);
         return isMatch ? { ...o, status, statusUpdatedAt: now } : o;
-      })
+      }),
     );
 
     if (
@@ -749,7 +745,8 @@ export function AdminPage() {
         selectedOrder &&
         (selectedOrder.id === orderId ||
           (orderNumber && selectedOrder.orderNumber === orderNumber) ||
-          selectedOrder.orderNumber.replace(/^#/, "") === (orderNumber || orderId).replace(/^#/, ""))
+          selectedOrder.orderNumber.replace(/^#/, "") ===
+            (orderNumber || orderId).replace(/^#/, ""))
       ) {
         setSelectedOrder(null);
       }
@@ -822,7 +819,9 @@ export function AdminPage() {
     }, 3800);
 
     setTimeout(() => {
-      const cleanNum = String(orderIdentifier || "").replace(/^#/, "").trim();
+      const cleanNum = String(orderIdentifier || "")
+        .replace(/^#/, "")
+        .trim();
       const el =
         document.getElementById(`order-card-${cleanNum}`) ||
         document.getElementById(`order-card-${orderIdentifier}`);
@@ -847,7 +846,9 @@ export function AdminPage() {
     }, 3800);
 
     setTimeout(() => {
-      const cleanNum = String(resIdentifier || "").replace(/^#/, "").trim();
+      const cleanNum = String(resIdentifier || "")
+        .replace(/^#/, "")
+        .trim();
       const el =
         document.getElementById(`booking-row-${cleanNum}`) ||
         document.getElementById(`booking-row-${resIdentifier}`);
@@ -1170,7 +1171,9 @@ export function AdminPage() {
               className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 active:scale-95 px-2.5 py-1.5 rounded-xl border border-white/15 text-xs font-bold text-white transition-all cursor-pointer shadow-xs disabled:opacity-75"
               title="Sync latest online orders & table bookings from server"
             >
-              <RefreshCw className={`size-3.5 ${isSyncing ? "animate-spin text-[#d99214]" : "text-emerald-400"}`} />
+              <RefreshCw
+                className={`size-3.5 ${isSyncing ? "animate-spin text-[#d99214]" : "text-emerald-400"}`}
+              />
               <span className="hidden md:inline">{isSyncing ? "Syncing..." : "Sync Server"}</span>
             </button>
 
@@ -1182,7 +1185,11 @@ export function AdminPage() {
                 className={`p-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold ${
                   soundEnabled ? "text-emerald-400" : "text-gray-400"
                 }`}
-                title={soundEnabled ? "Sound Alerts: ON (Click to Mute)" : "Sound Alerts: MUTED (Click to Enable)"}
+                title={
+                  soundEnabled
+                    ? "Sound Alerts: ON (Click to Mute)"
+                    : "Sound Alerts: MUTED (Click to Enable)"
+                }
               >
                 {soundEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
                 <span className="hidden xl:inline">{soundEnabled ? "Sound ON" : "Muted"}</span>
@@ -1270,7 +1277,8 @@ export function AdminPage() {
                   <div className="max-h-80 overflow-y-auto divide-y divide-[#1a3b6b]/10 text-xs">
                     {notifications.length === 0 ? (
                       <div className="py-8 text-center text-xs text-[#767064]">
-                        No recent notifications. New orders and table bookings will appear here in real time!
+                        No recent notifications. New orders and table bookings will appear here in
+                        real time!
                       </div>
                     ) : (
                       notifications.map((n) => (
@@ -1280,7 +1288,7 @@ export function AdminPage() {
                             if (n.type === "order" || n.type === "cancellation") {
                               handleViewOrderFromAlert(n.referenceId);
                               const match = orders.find(
-                                (o) => o.orderNumber === n.referenceId || o.id === n.referenceId
+                                (o) => o.orderNumber === n.referenceId || o.id === n.referenceId,
                               );
                               if (match) setSelectedOrder(match);
                             } else if (n.type === "reservation") {
@@ -1416,7 +1424,7 @@ export function AdminPage() {
                   onClick={() => {
                     setActiveTab("orders");
                     const match = orders.find(
-                      (o) => o.orderNumber === liveAlert.refId || o.id === liveAlert.refId
+                      (o) => o.orderNumber === liveAlert.refId || o.id === liveAlert.refId,
                     );
                     if (match) setSelectedOrder(match);
                     handleMarkOrderViewed(liveAlert.refId);
@@ -1446,7 +1454,7 @@ export function AdminPage() {
                   onClick={() => {
                     setActiveTab("reservations");
                     const match = reservations.find(
-                      (r) => r.reservationNumber === liveAlert.refId || r.id === liveAlert.refId
+                      (r) => r.reservationNumber === liveAlert.refId || r.id === liveAlert.refId,
                     );
                     if (match) setSelectedReservation(match);
                     handleMarkReservationViewed(liveAlert.refId);
@@ -1863,9 +1871,7 @@ export function AdminPage() {
                     <span className="text-[0.68rem] text-[#595347]">Pending</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-[#1a3b6b]/10 border border-[#1a3b6b]/30">
-                    <span className="block font-bold text-lg text-[#1a3b6b]">
-                      {inKitchenCount}
-                    </span>
+                    <span className="block font-bold text-lg text-[#1a3b6b]">{inKitchenCount}</span>
                     <span className="text-[0.68rem] text-[#1a3b6b]">In Kitchen</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-[#16a34a]/10 border border-[#16a34a]/30">
@@ -1992,7 +1998,8 @@ export function AdminPage() {
 
               {orders.length === 0 ? (
                 <div className="py-8 text-center text-xs text-[#767064]">
-                  No orders placed yet. Place an order on the menu or click "Load Sample Data" above!
+                  No orders placed yet. Place an order on the menu or click "Load Sample Data"
+                  above!
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -2013,8 +2020,12 @@ export function AdminPage() {
                         <tr key={ord.id} className="hover:bg-[#fdfbf7] transition-colors">
                           <td className="py-3 font-bold text-[#1a3b6b]">#{ord.orderNumber}</td>
                           <td className="py-3">
-                            <span className="font-bold text-[#191918] block">{ord.customerName}</span>
-                            <span className="text-[0.7rem] text-[#767064]">{ord.customerPhone}</span>
+                            <span className="font-bold text-[#191918] block">
+                              {ord.customerName}
+                            </span>
+                            <span className="text-[0.7rem] text-[#767064]">
+                              {ord.customerPhone}
+                            </span>
                           </td>
                           <td className="py-3">
                             <span className="inline-flex items-center gap-1 font-semibold text-[#595347] capitalize">
@@ -2039,7 +2050,9 @@ export function AdminPage() {
                                   Cancelled
                                 </span>
                                 <span className="text-[0.62rem] font-bold text-rose-600 block text-center whitespace-nowrap">
-                                  {ord.cancelledBy === "customer" ? "By Customer (1-min)" : "By Staff"}
+                                  {ord.cancelledBy === "customer"
+                                    ? "By Customer (1-min)"
+                                    : "By Staff"}
                                 </span>
                               </div>
                             ) : (
@@ -2098,7 +2111,7 @@ export function AdminPage() {
                     >
                       {st === "all" ? "All Orders" : st}
                     </button>
-                  )
+                  ),
                 )}
               </div>
 
@@ -2135,8 +2148,8 @@ export function AdminPage() {
                 <ShoppingBag className="size-10 text-[#d99214] mx-auto" />
                 <h3 className="font-display text-xl font-bold text-[#1a3b6b]">No orders found</h3>
                 <p className="text-xs text-[#595347] max-w-sm mx-auto">
-                  No orders match your selected filters. You can place an order from the menu or click
-                  "Load Sample Data" to preview live orders.
+                  No orders match your selected filters. You can place an order from the menu or
+                  click "Load Sample Data" to preview live orders.
                 </p>
                 <button
                   onClick={handleSeedData}
@@ -2158,7 +2171,7 @@ export function AdminPage() {
                     (id) =>
                       id === ord.orderNumber ||
                       id.replace(/^#/, "") === ord.orderNumber.replace(/^#/, "") ||
-                      id === ord.id
+                      id === ord.id,
                   );
 
                   return (
@@ -2217,13 +2230,21 @@ export function AdminPage() {
                           <div className="relative inline-flex items-center">
                             <select
                               value={ord.status}
-                              disabled={updatingOrderId === ord.id || updatingOrderId === ord.orderNumber}
+                              disabled={
+                                updatingOrderId === ord.id || updatingOrderId === ord.orderNumber
+                              }
                               onChange={(e) => {
                                 if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
-                                handleUpdateOrderStatus(ord.id, e.target.value as OrderStatus, ord.orderNumber);
+                                handleUpdateOrderStatus(
+                                  ord.id,
+                                  e.target.value as OrderStatus,
+                                  ord.orderNumber,
+                                );
                               }}
                               className={`text-xs font-extrabold uppercase rounded-lg px-2.5 py-1 border cursor-pointer focus:outline-none transition-all ${
-                                updatingOrderId === ord.id || updatingOrderId === ord.orderNumber ? "opacity-70 cursor-wait" : ""
+                                updatingOrderId === ord.id || updatingOrderId === ord.orderNumber
+                                  ? "opacity-70 cursor-wait"
+                                  : ""
                               } ${
                                 ord.status === "pending"
                                   ? "bg-[#fef3c7] text-[#92400e] border-[#fde68a]"
@@ -2242,143 +2263,149 @@ export function AdminPage() {
                               <option value="completed">Completed</option>
                               <option value="cancelled">Cancelled</option>
                             </select>
-                            {(updatingOrderId === ord.id || updatingOrderId === ord.orderNumber) && (
+                            {(updatingOrderId === ord.id ||
+                              updatingOrderId === ord.orderNumber) && (
                               <div className="absolute right-1 size-3 border-2 border-current border-t-transparent rounded-full animate-spin pointer-events-none" />
                             )}
                           </div>
-                      </div>
+                        </div>
 
-                      {/* Customer Info */}
-                      <div className="pt-3 space-y-1 text-xs">
-                        <p className="font-bold text-[#191918]">{ord.customerName}</p>
-                        <p className="text-[#595347] flex items-center gap-1.5">
-                          <Phone className="size-3 text-[#1a3b6b]" />
-                          <span>{ord.customerPhone}</span>
-                        </p>
-                        <p className="text-[#767064] truncate">{ord.customerEmail}</p>
-                        {ord.fulfilmentType === "delivery" && ord.deliveryAddress && (
-                          <p className="text-[#1a3b6b] flex items-start gap-1 font-medium pt-1">
-                            <MapPin className="size-3 shrink-0 mt-0.5 text-[#d99214]" />
-                            <span>
-                              {ord.deliveryAddress}{" "}
-                              {ord.deliveryApt ? `(${ord.deliveryApt})` : ""},{" "}
-                              {ord.deliveryCity} {ord.deliveryZip}
-                            </span>
+                        {/* Customer Info */}
+                        <div className="pt-3 space-y-1 text-xs">
+                          <p className="font-bold text-[#191918]">{ord.customerName}</p>
+                          <p className="text-[#595347] flex items-center gap-1.5">
+                            <Phone className="size-3 text-[#1a3b6b]" />
+                            <span>{ord.customerPhone}</span>
                           </p>
+                          <p className="text-[#767064] truncate">{ord.customerEmail}</p>
+                          {ord.fulfilmentType === "delivery" && ord.deliveryAddress && (
+                            <p className="text-[#1a3b6b] flex items-start gap-1 font-medium pt-1">
+                              <MapPin className="size-3 shrink-0 mt-0.5 text-[#d99214]" />
+                              <span>
+                                {ord.deliveryAddress}{" "}
+                                {ord.deliveryApt ? `(${ord.deliveryApt})` : ""}, {ord.deliveryCity}{" "}
+                                {ord.deliveryZip}
+                              </span>
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Special Order Notes or Allergy */}
+                        {ord.orderNote && (
+                          <div className="mt-2.5 p-2 rounded-lg bg-[#fef7e6] border border-[#f5deaa] text-[0.72rem] text-[#b87508]">
+                            <strong>Note:</strong> {ord.orderNote}
+                          </div>
                         )}
+
+                        {/* Cancellation Attribution Banner */}
+                        {ord.status === "cancelled" && (
+                          <div className="mt-2.5 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-1">
+                            <div className="flex items-center gap-1.5 font-bold text-xs">
+                              <AlertTriangle className="size-3.5 text-rose-600 shrink-0" />
+                              <span>
+                                Cancelled by:{" "}
+                                <strong className="text-rose-950 font-extrabold underline decoration-rose-300">
+                                  {ord.cancelledBy === "customer"
+                                    ? "CUSTOMER (Online Tracking Portal)"
+                                    : "STAFF / ADMIN"}
+                                </strong>
+                              </span>
+                            </div>
+                            {ord.cancellationReason && (
+                              <p className="text-[0.68rem] text-rose-800 leading-tight">
+                                {ord.cancellationReason}
+                              </p>
+                            )}
+                            {ord.cancelledAt && (
+                              <p className="text-[0.65rem] text-rose-600">
+                                Cancelled at:{" "}
+                                {new Date(ord.cancelledAt).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  second: "2-digit",
+                                })}
+                                {ord.timestamp && (
+                                  <span>
+                                    {" "}
+                                    (
+                                    {Math.max(
+                                      1,
+                                      Math.round((ord.cancelledAt - ord.timestamp) / 1000),
+                                    )}
+                                    s after placement)
+                                  </span>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Items Summary */}
+                        <div className="mt-3 pt-2.5 border-t border-[#1a3b6b]/10 space-y-1 text-xs">
+                          <span className="text-[0.68rem] font-bold uppercase tracking-wider text-[#767064]">
+                            Dishes ({ord.items.reduce((s, i) => s + i.quantity, 0)})
+                          </span>
+                          {ord.items.map((it, idx) => (
+                            <div key={idx} className="flex justify-between text-[#595347]">
+                              <span>
+                                {it.quantity}x {it.name}
+                              </span>
+                              <span className="font-semibold text-[#191918]">
+                                ${it.total.toFixed(2)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
 
-                      {/* Special Order Notes or Allergy */}
-                      {ord.orderNote && (
-                        <div className="mt-2.5 p-2 rounded-lg bg-[#fef7e6] border border-[#f5deaa] text-[0.72rem] text-[#b87508]">
-                          <strong>Note:</strong> {ord.orderNote}
+                      {/* Footer: Grand Total & Actions */}
+                      <div className="pt-3 border-t border-[#1a3b6b]/15 space-y-2.5">
+                        <div className="flex justify-between items-baseline">
+                          <span className="text-xs text-[#767064]">
+                            {ord.paymentMethod === "prepay" ? "Prepaid (Card)" : "Pay at counter"}
+                          </span>
+                          <span className="font-display text-lg font-bold text-[#1a3b6b]">
+                            ${ord.grandTotal.toFixed(2)}
+                          </span>
                         </div>
-                      )}
 
-                      {/* Cancellation Attribution Banner */}
-                      {ord.status === "cancelled" && (
-                        <div className="mt-2.5 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-1">
-                          <div className="flex items-center gap-1.5 font-bold text-xs">
-                            <AlertTriangle className="size-3.5 text-rose-600 shrink-0" />
-                            <span>
-                              Cancelled by:{" "}
-                              <strong className="text-rose-950 font-extrabold underline decoration-rose-300">
-                                {ord.cancelledBy === "customer"
-                                  ? "CUSTOMER (Online Tracking Portal)"
-                                  : "STAFF / ADMIN"}
-                              </strong>
-                            </span>
-                          </div>
-                          {ord.cancellationReason && (
-                            <p className="text-[0.68rem] text-rose-800 leading-tight">
-                              {ord.cancellationReason}
-                            </p>
-                          )}
-                          {ord.cancelledAt && (
-                            <p className="text-[0.65rem] text-rose-600">
-                              Cancelled at:{" "}
-                              {new Date(ord.cancelledAt).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                                second: "2-digit",
-                              })}
-                              {ord.timestamp && (
-                                <span>
-                                  {" "}
-                                  ({Math.max(1, Math.round((ord.cancelledAt - ord.timestamp) / 1000))}s after placement)
-                                </span>
-                              )}
-                            </p>
-                          )}
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <button
+                            onClick={() => {
+                              if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
+                              setSelectedOrder(ord);
+                            }}
+                            className="py-1.5 px-2 rounded-lg bg-[#ede4d5] hover:bg-[#dfd2be] text-xs font-bold text-[#1a3b6b] flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <Printer className="size-3" />
+                            <span>Ticket</span>
+                          </button>
+
+                          <a
+                            href={`https://wa.me/${ord.customerPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                              `Hello ${ord.customerName}! Beachwood Cafe update regarding your order #${ord.orderNumber}: Your order status is now ${ord.status.toUpperCase()}.`,
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="py-1.5 px-2 rounded-lg bg-[#16a34a]/15 hover:bg-[#16a34a]/25 text-[#16a34a] text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <MessageCircle className="size-3" />
+                            <span>Chat</span>
+                          </a>
+
+                          <button
+                            onClick={() => handleDeleteOrder(ord.id, ord.orderNumber)}
+                            className="py-1.5 px-2 rounded-lg bg-white border border-[#b91c1c]/30 hover:bg-[#fee2e2] text-[#b91c1c] text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+                            title="Delete Order"
+                          >
+                            <Trash2 className="size-3" />
+                            <span>Del</span>
+                          </button>
                         </div>
-                      )}
-
-                      {/* Items Summary */}
-                      <div className="mt-3 pt-2.5 border-t border-[#1a3b6b]/10 space-y-1 text-xs">
-                        <span className="text-[0.68rem] font-bold uppercase tracking-wider text-[#767064]">
-                          Dishes ({ord.items.reduce((s, i) => s + i.quantity, 0)})
-                        </span>
-                        {ord.items.map((it, idx) => (
-                          <div key={idx} className="flex justify-between text-[#595347]">
-                            <span>
-                              {it.quantity}x {it.name}
-                            </span>
-                            <span className="font-semibold text-[#191918]">
-                              ${it.total.toFixed(2)}
-                            </span>
-                          </div>
-                        ))}
                       </div>
                     </div>
-
-                    {/* Footer: Grand Total & Actions */}
-                    <div className="pt-3 border-t border-[#1a3b6b]/15 space-y-2.5">
-                      <div className="flex justify-between items-baseline">
-                        <span className="text-xs text-[#767064]">
-                          {ord.paymentMethod === "prepay" ? "Prepaid (Card)" : "Pay at counter"}
-                        </span>
-                        <span className="font-display text-lg font-bold text-[#1a3b6b]">
-                          ${ord.grandTotal.toFixed(2)}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <button
-                          onClick={() => {
-                            if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
-                            setSelectedOrder(ord);
-                          }}
-                          className="py-1.5 px-2 rounded-lg bg-[#ede4d5] hover:bg-[#dfd2be] text-xs font-bold text-[#1a3b6b] flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <Printer className="size-3" />
-                          <span>Ticket</span>
-                        </button>
-
-                        <a
-                          href={`https://wa.me/${ord.customerPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                            `Hello ${ord.customerName}! Beachwood Cafe update regarding your order #${ord.orderNumber}: Your order status is now ${ord.status.toUpperCase()}.`
-                          )}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="py-1.5 px-2 rounded-lg bg-[#16a34a]/15 hover:bg-[#16a34a]/25 text-[#16a34a] text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <MessageCircle className="size-3" />
-                          <span>Chat</span>
-                        </a>
-
-                        <button
-                          onClick={() => handleDeleteOrder(ord.id, ord.orderNumber)}
-                          className="py-1.5 px-2 rounded-lg bg-white border border-[#b91c1c]/30 hover:bg-[#fee2e2] text-[#b91c1c] text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
-                          title="Delete Order"
-                        >
-                          <Trash2 className="size-3" />
-                          <span>Del</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2480,13 +2507,14 @@ export function AdminPage() {
                         const isResHighlighted =
                           highlightedBookingId &&
                           (highlightedBookingId === res.reservationNumber ||
-                            highlightedBookingId.replace(/^#/, "") === res.reservationNumber.replace(/^#/, "") ||
+                            highlightedBookingId.replace(/^#/, "") ===
+                              res.reservationNumber.replace(/^#/, "") ||
                             highlightedBookingId === res.id);
                         const isResUnviewed = unviewedBookingIds.some(
                           (id) =>
                             id === res.reservationNumber ||
                             id.replace(/^#/, "") === res.reservationNumber.replace(/^#/, "") ||
-                            id === res.id
+                            id === res.id,
                         );
 
                         return (
@@ -2528,8 +2556,12 @@ export function AdminPage() {
                             </td>
                             <td className="p-3.5">
                               <span className="font-bold text-[#191918] block">{res.fullName}</span>
-                              <span className="text-[#595347] block text-[0.7rem]">{res.phone}</span>
-                              <span className="text-[#767064] block text-[0.65rem]">{res.email}</span>
+                              <span className="text-[#595347] block text-[0.7rem]">
+                                {res.phone}
+                              </span>
+                              <span className="text-[#767064] block text-[0.65rem]">
+                                {res.email}
+                              </span>
                             </td>
                             <td className="p-3.5 font-semibold text-[#191918]">
                               <span className="block">{res.partySize}</span>
@@ -2542,14 +2574,20 @@ export function AdminPage() {
                               <span className="text-[0.7rem] text-[#595347] block">{res.time}</span>
                             </td>
                             <td className="p-3.5 max-w-xs text-[#595347]">
-                              {res.specialRequests || <span className="italic text-[#8c8273]">None</span>}
+                              {res.specialRequests || (
+                                <span className="italic text-[#8c8273]">None</span>
+                              )}
                             </td>
                             <td className="p-3.5">
                               <select
                                 value={res.status}
                                 onChange={(e) => {
-                                  if (isResUnviewed) handleMarkReservationViewed(res.reservationNumber);
-                                  handleUpdateResStatus(res.id, e.target.value as ReservationStatus);
+                                  if (isResUnviewed)
+                                    handleMarkReservationViewed(res.reservationNumber);
+                                  handleUpdateResStatus(
+                                    res.id,
+                                    e.target.value as ReservationStatus,
+                                  );
                                 }}
                                 className={`text-xs font-bold uppercase rounded-lg px-2 py-1 border cursor-pointer focus:outline-none ${
                                   res.status === "confirmed"
@@ -2572,7 +2610,8 @@ export function AdminPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (isResUnviewed) handleMarkReservationViewed(res.reservationNumber);
+                                  if (isResUnviewed)
+                                    handleMarkReservationViewed(res.reservationNumber);
                                   setSelectedReservation(res);
                                 }}
                                 className="p-1.5 rounded-lg bg-[#ede4d5] hover:bg-[#dfd2be] text-[#1a3b6b] inline-flex items-center justify-center transition-colors cursor-pointer"
@@ -2598,7 +2637,7 @@ export function AdminPage() {
                                         ? "cancelled"
                                         : res.status === "completed"
                                           ? "completed"
-                                          : "confirmed"
+                                          : "confirmed",
                                   )
                                 }
                                 className="p-1.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] hover:text-[#075E54] inline-flex items-center justify-center transition-colors cursor-pointer"
@@ -2896,9 +2935,7 @@ export function AdminPage() {
               <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-1.5 text-xs">
                 <div className="flex items-center gap-1.5 font-bold text-rose-700">
                   <AlertTriangle className="size-4 shrink-0" />
-                  <span className="uppercase tracking-wide text-xs">
-                    Order Cancelled
-                  </span>
+                  <span className="uppercase tracking-wide text-xs">Order Cancelled</span>
                 </div>
                 <p className="font-bold text-sm text-rose-950">
                   Cancelled By:{" "}
@@ -2926,9 +2963,7 @@ export function AdminPage() {
                         (
                         {Math.max(
                           1,
-                          Math.round(
-                            (selectedOrder.cancelledAt - selectedOrder.timestamp) / 1000
-                          )
+                          Math.round((selectedOrder.cancelledAt - selectedOrder.timestamp) / 1000),
                         )}
                         s after placement)
                       </span>
@@ -2998,7 +3033,9 @@ export function AdminPage() {
                 {(["pending", "kitchen", "ready", "completed", "cancelled"] as const).map((st) => (
                   <button
                     key={st}
-                    onClick={() => handleUpdateOrderStatus(selectedOrder.id, st, selectedOrder.orderNumber)}
+                    onClick={() =>
+                      handleUpdateOrderStatus(selectedOrder.id, st, selectedOrder.orderNumber)
+                    }
                     className={`px-2 py-1 rounded text-[0.68rem] font-extrabold uppercase transition-colors cursor-pointer ${
                       selectedOrder.status === st
                         ? "bg-[#1a3b6b] text-white shadow-xs"
@@ -3106,9 +3143,7 @@ export function AdminPage() {
                 <h3 className="font-display text-2xl font-bold text-[#1a3b6b]">
                   Booking #{selectedReservation.reservationNumber}
                 </h3>
-                <p className="text-xs text-[#767064]">
-                  Booked On: {selectedReservation.createdAt}
-                </p>
+                <p className="text-xs text-[#767064]">Booked On: {selectedReservation.createdAt}</p>
               </div>
               <button
                 type="button"
@@ -3188,7 +3223,7 @@ export function AdminPage() {
                           ? "cancelled"
                           : selectedReservation.status === "completed"
                             ? "completed"
-                            : "confirmed"
+                            : "confirmed",
                     )
                   }
                   className="py-2 px-3 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
@@ -3354,7 +3389,8 @@ export function AdminPage() {
                     <span>Save hone par guest nu WhatsApp te booking update bhejo</span>
                   </span>
                   <span className="block text-[0.68rem] text-emerald-800 font-normal mt-0.5">
-                    Automatically opens WhatsApp update dialog with complete booking details, table & schedule
+                    Automatically opens WhatsApp update dialog with complete booking details, table
+                    & schedule
                   </span>
                 </label>
               </div>
@@ -3439,7 +3475,9 @@ export function AdminPage() {
               </div>
 
               <div>
-                <label className="block font-bold text-[#191918] mb-1">Confirm New Password *</label>
+                <label className="block font-bold text-[#191918] mb-1">
+                  Confirm New Password *
+                </label>
                 <input
                   type="password"
                   required
@@ -3511,7 +3549,8 @@ export function AdminPage() {
               <div>
                 <span className="font-bold text-[#191918] block">{whatsAppRes.fullName}</span>
                 <span className="text-[#595347] text-[0.7rem] block">
-                  {whatsAppRes.partySize} • {whatsAppRes.date}, {whatsAppRes.time} • {whatsAppRes.seating}
+                  {whatsAppRes.partySize} • {whatsAppRes.date}, {whatsAppRes.time} •{" "}
+                  {whatsAppRes.seating}
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
@@ -3541,9 +3580,7 @@ export function AdminPage() {
 
             {/* Recipient Phone & Country Code Selector */}
             <div className="space-y-1.5 text-xs">
-              <label className="block font-bold text-[#191918]">
-                Recipient WhatsApp Number
-              </label>
+              <label className="block font-bold text-[#191918]">Recipient WhatsApp Number</label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <input
@@ -3593,15 +3630,16 @@ export function AdminPage() {
                 </button>
               </div>
               <p className="text-[0.68rem] text-[#767064]">
-                Target: <span className="font-mono font-bold text-[#191918]">wa.me/{formatWhatsAppTargetPhone(whatsAppPhone, whatsAppCountryCode)}</span>
+                Target:{" "}
+                <span className="font-mono font-bold text-[#191918]">
+                  wa.me/{formatWhatsAppTargetPhone(whatsAppPhone, whatsAppCountryCode)}
+                </span>
               </p>
             </div>
 
             {/* Template Selection */}
             <div className="space-y-1.5 text-xs">
-              <label className="block font-bold text-[#191918]">
-                Message Update Template
-              </label>
+              <label className="block font-bold text-[#191918]">Message Update Template</label>
               <div className="flex flex-wrap gap-1.5">
                 {(
                   [
@@ -3631,9 +3669,7 @@ export function AdminPage() {
             {/* Message Preview & Edit */}
             <div className="space-y-1 text-xs">
               <div className="flex items-center justify-between">
-                <label className="block font-bold text-[#191918]">
-                  Message Preview (Editable)
-                </label>
+                <label className="block font-bold text-[#191918]">Message Preview (Editable)</label>
                 <span className="text-[0.68rem] text-[#767064]">
                   {whatsAppMessageText.length} characters
                 </span>
@@ -3653,14 +3689,14 @@ export function AdminPage() {
             <div className="pt-2 flex flex-col sm:flex-row gap-2">
               <a
                 href={`https://wa.me/${formatWhatsAppTargetPhone(whatsAppPhone, whatsAppCountryCode)}?text=${encodeURIComponent(
-                  whatsAppMessageText
+                  whatsAppMessageText,
                 )}`}
                 target="_blank"
                 rel="noreferrer"
                 onClick={() => {
                   adminStore.trackWhatsAppClick(
                     "Admin Reservation WhatsApp Update",
-                    `#${whatsAppRes.reservationNumber}`
+                    `#${whatsAppRes.reservationNumber}`,
                   );
                   showNotification(`WhatsApp opened for #${whatsAppRes.reservationNumber}`);
                   setWhatsAppRes(null);
@@ -3681,7 +3717,11 @@ export function AdminPage() {
                 }}
                 className="py-2.5 px-3.5 rounded-xl bg-[#ede4d5] hover:bg-[#e4d7c3] text-[#49443b] hover:text-[#191918] font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                {isCopied ? <Check className="size-3.5 text-emerald-700" /> : <Copy className="size-3.5" />}
+                {isCopied ? (
+                  <Check className="size-3.5 text-emerald-700" />
+                ) : (
+                  <Copy className="size-3.5" />
+                )}
                 <span>{isCopied ? "Copied!" : "Copy Text"}</span>
               </button>
 
@@ -3705,10 +3745,12 @@ export function AdminPage() {
           </div>
           <div className="flex-1 text-xs">
             <p className="font-bold text-[#191918]">
-              Status Updated to <span className="uppercase text-emerald-700">{statusUpdateToast.status}</span>
+              Status Updated to{" "}
+              <span className="uppercase text-emerald-700">{statusUpdateToast.status}</span>
             </p>
             <p className="text-[#595347] mt-0.5">
-              Send a WhatsApp update to {statusUpdateToast.reservation.fullName} (#{statusUpdateToast.reservation.reservationNumber})?
+              Send a WhatsApp update to {statusUpdateToast.reservation.fullName} (#
+              {statusUpdateToast.reservation.reservationNumber})?
             </p>
             <div className="flex items-center gap-2 mt-2.5">
               <button
@@ -3725,7 +3767,7 @@ export function AdminPage() {
                         ? "cancelled"
                         : st === "completed"
                           ? "completed"
-                          : "confirmed"
+                          : "confirmed",
                   );
                 }}
                 className="px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#20ba5a] text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -3763,7 +3805,8 @@ export function AdminPage() {
               Table Booking Saved: #{savedBookingBanner.reservationNumber}
             </p>
             <p className="text-[#595347] mt-0.5">
-              Guest: {savedBookingBanner.fullName} ({savedBookingBanner.partySize} · {savedBookingBanner.date}, {savedBookingBanner.time})
+              Guest: {savedBookingBanner.fullName} ({savedBookingBanner.partySize} ·{" "}
+              {savedBookingBanner.date}, {savedBookingBanner.time})
             </p>
             <div className="flex items-center gap-2 mt-2.5">
               <button
