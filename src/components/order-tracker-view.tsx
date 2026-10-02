@@ -146,25 +146,51 @@ export function OrderTrackerView({
     }
 
     if (orderToFind) {
+      if (adminStore.isOrderDeleted(orderToFind)) {
+        setTargetOrderNumber(null);
+        setSelectedOrder(null);
+        if (typeof window !== "undefined" && window.history?.replaceState) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("order");
+          url.searchParams.delete("id");
+          url.searchParams.delete("track");
+          window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+        }
+        return;
+      }
+
       setTargetOrderNumber(orderToFind);
       const match = adminStore.findOrder(orderToFind);
       if (match) {
         setSelectedOrder(match);
-      } else {
-        setIsLoadingOrder(true);
-        adminStore
-          .lookupOrder(orderToFind)
-          .then((res) => {
-            if (res) {
-              setSelectedOrder(res);
-              setTargetOrderNumber(res.orderNumber);
-            }
-          })
-          .catch(() => {})
-          .finally(() => {
-            setIsLoadingOrder(false);
-          });
       }
+
+      // Always verify against cloud source of truth
+      setIsLoadingOrder(true);
+      adminStore
+        .lookupOrder(orderToFind)
+        .then((res) => {
+          if (res) {
+            setSelectedOrder(res);
+            setTargetOrderNumber(res.orderNumber);
+          } else {
+            // Deleted or non-existent in cloud
+            setSelectedOrder(null);
+            setTargetOrderNumber(null);
+            if (typeof window !== "undefined" && window.history?.replaceState) {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("order");
+              url.searchParams.delete("id");
+              url.searchParams.delete("track");
+              window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+            }
+            refreshData();
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          setIsLoadingOrder(false);
+        });
     }
   }, [initialOrderNumber]);
 
@@ -270,8 +296,13 @@ export function OrderTrackerView({
         await adminStore.syncWithServer();
         const current = selectedOrderRef.current;
         if (current) {
+          const isDeleted =
+            adminStore.isOrderDeleted(current.orderNumber) ||
+            adminStore.isOrderDeleted(current.id);
           const refreshed =
-            adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id);
+            !isDeleted &&
+            (adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id));
+
           if (
             refreshed &&
             (refreshed.status !== current.status ||
@@ -304,8 +335,15 @@ export function OrderTrackerView({
           const evNum = changedOrderNum ? safeOrderNumber(changedOrderNum).toLowerCase() : "";
           const evId = String(changedOrderId || "").trim().toLowerCase();
 
-          const isOurOrder = (evNum && evNum === currentNum) || (evId && evId === currentId);
-          if (isOurOrder) {
+          const isOurOrder =
+            (evNum && (evNum === currentNum || evNum === currentId)) ||
+            (evId && (evId === currentId || evId === currentNum));
+          const stillExists =
+            !adminStore.isOrderDeleted(current.orderNumber) &&
+            !adminStore.isOrderDeleted(current.id) &&
+            (adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id));
+
+          if (isOurOrder || !stillExists) {
             setSelectedOrder(null);
             setTargetOrderNumber(null);
             setRecentOrders(adminStore.getCustomerRecentOrders());

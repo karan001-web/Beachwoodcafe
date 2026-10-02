@@ -89,11 +89,33 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   // 1. Sync endpoint: returns all orders and reservations
   if (path === "/api/sync" || path === "/api/sync/") {
     if (request.method === "GET") {
+      const activeOrders = serverOrders.filter((o) => {
+        if (!o) return false;
+        const oNum = o.orderNumber
+          ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
+        const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+        if (oNum && serverDeletedOrderIds.has(oNum)) return false;
+        if (oId && serverDeletedOrderIds.has(oId)) return false;
+        if (serverClearedAt && o.timestamp && o.timestamp <= serverClearedAt) return false;
+        return true;
+      });
+      const activeReservations = serverReservations.filter((r) => {
+        if (!r) return false;
+        const rNum = r.reservationNumber
+          ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
+        const rId = r.id ? String(r.id).trim().toLowerCase() : "";
+        if (rNum && serverDeletedResIds.has(rNum)) return false;
+        if (rId && serverDeletedResIds.has(rId)) return false;
+        if (serverClearedAt && r.timestamp && r.timestamp <= serverClearedAt) return false;
+        return true;
+      });
       return new Response(
         JSON.stringify({
           success: true,
-          orders: serverOrders,
-          reservations: serverReservations,
+          orders: activeOrders,
+          reservations: activeReservations,
           timestamp: Date.now(),
         }),
         { status: 200, headers: corsHeaders },
@@ -104,11 +126,22 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   // 2. Orders endpoints
   if (path === "/api/orders" || path === "/api/orders/") {
     if (request.method === "GET") {
+      const activeOrders = serverOrders.filter((o) => {
+        if (!o) return false;
+        const oNum = o.orderNumber
+          ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
+        const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+        if (oNum && serverDeletedOrderIds.has(oNum)) return false;
+        if (oId && serverDeletedOrderIds.has(oId)) return false;
+        if (serverClearedAt && o.timestamp && o.timestamp <= serverClearedAt) return false;
+        return true;
+      });
       return new Response(
         JSON.stringify({
           success: true,
-          orders: serverOrders,
-          total: serverOrders.length,
+          orders: activeOrders,
+          total: activeOrders.length,
         }),
         { status: 200, headers: corsHeaders },
       );

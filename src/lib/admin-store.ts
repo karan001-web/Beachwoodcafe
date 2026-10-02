@@ -843,6 +843,92 @@ export const adminStore = {
     return { success: true, order };
   },
 
+  isOrderDeleted(identifier: string): boolean {
+    if (!identifier) return false;
+    const clean = String(identifier).trim().toLowerCase().replace(/^#/, "");
+    const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    return deletedOrderIds.includes(clean);
+  },
+
+  isReservationDeleted(identifier: string): boolean {
+    if (!identifier) return false;
+    const clean = String(identifier).trim().toLowerCase().replace(/^#/, "");
+    const deletedResIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
+    return deletedResIds.includes(clean);
+  },
+
+  purgeDeletedOrder(orderId?: string, orderNumber?: string): void {
+    const cleanId = orderId ? String(orderId).trim().toLowerCase() : "";
+    const cleanNum = orderNumber ? String(orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+
+    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    const matched = orders.find((o) => {
+      if (!o) return false;
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const oId = (o.id || "").trim().toLowerCase();
+      return (
+        (cleanNum && oNum === cleanNum) ||
+        (cleanId && oId === cleanId) ||
+        (cleanId && oNum === cleanId) ||
+        (cleanNum && oId === cleanNum)
+      );
+    });
+
+    const effectiveNum = (matched?.orderNumber || orderNumber || "").replace(/^#/, "").trim();
+    const effectiveId = (matched?.id || orderId || "").trim();
+    const normNum = effectiveNum ? effectiveNum.toLowerCase() : "";
+    const normId = effectiveId ? effectiveId.toLowerCase() : "";
+
+    // 1. Remove from local orders
+    const filtered = orders.filter((o) => {
+      if (!o) return false;
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const oId = (o.id || "").trim().toLowerCase();
+      if (normNum && oNum === normNum) return false;
+      if (normId && oId === normId) return false;
+      if (cleanNum && oNum === cleanNum) return false;
+      if (cleanId && oId === cleanId) return false;
+      return true;
+    });
+    safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
+
+    // 2. Add to tombstone deleted registry
+    const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    if (normNum && !deleted.includes(normNum)) deleted.push(normNum);
+    if (normId && !deleted.includes(normId)) deleted.push(normId);
+    if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
+    if (cleanId && !deleted.includes(cleanId)) deleted.push(cleanId);
+    safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deleted.slice(-200));
+
+    // 3. Remove from customer order list & last order ID
+    try {
+      const custIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+      const updatedCustIds = custIds.filter((cid) => {
+        const c = String(cid || "").replace(/^#/, "").trim().toLowerCase();
+        return c !== normNum && c !== normId && c !== cleanNum && c !== cleanId;
+      });
+      safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, updatedCustIds);
+
+      const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+      if (lastId) {
+        const cleanLast = String(lastId).replace(/^#/, "").trim().toLowerCase();
+        if (cleanLast === normNum || cleanLast === normId || cleanLast === cleanNum || cleanLast === cleanId) {
+          localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bwc_order_change", {
+          detail: { orderId: effectiveId || cleanId, orderNumber: effectiveNum || cleanNum, action: "delete" },
+        }),
+      );
+    }
+  },
+
   // Search orders by orderNumber, id, or phone number locally
   findOrder(query: string): AdminOrder | undefined {
     if (!query || !query.trim()) return undefined;
@@ -894,18 +980,11 @@ export const adminStore = {
     const cleanDigits = query.replace(/\D/g, "");
 
     // 1. Check if order was explicitly deleted/tombstoned by admin
-    const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
-    if (deletedOrderIds.includes(cleanLower)) {
+    if (this.isOrderDeleted(cleanLower)) {
       return undefined;
     }
 
-    // 2. Check local memory / localStorage first
-    const localMatch = this.findOrder(query);
-    if (localMatch) {
-      return localMatch;
-    }
-
-    // 3. Search Supabase directly (instant cloud database lookup across devices)
+    // 2. Search Supabase directly (authoritative persistent cloud database)
     if (isSupabaseConfigured()) {
       try {
         const sbOrder = await fetchSingleOrderFromSupabase(query);
@@ -917,7 +996,7 @@ export const adminStore = {
           const sbId = String(sbOrder.id || "")
             .trim()
             .toLowerCase();
-          if (!deletedOrderIds.includes(sbNum) && !deletedOrderIds.includes(sbId)) {
+          if (!this.isOrderDeleted(sbNum) && !this.isOrderDeleted(sbId)) {
             const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
             const existingIdx = orders.findIndex(
               (o) => o && (o.id === sbOrder.id || o.orderNumber === sbOrder.orderNumber),
@@ -931,10 +1010,25 @@ export const adminStore = {
             this.recordCustomerOrderId(sbOrder.orderNumber);
             return sbOrder;
           }
+        } else {
+          // If query looks like an order ID or orderNumber and Supabase returned null,
+          // the order does NOT exist in the cloud (it was deleted or never placed).
+          // Purge any stale local copy so it is never shown as a zombie order.
+          const localMatch = this.findOrder(query);
+          if (localMatch) {
+            this.purgeDeletedOrder(localMatch.id, localMatch.orderNumber);
+          }
+          return undefined;
         }
       } catch (err) {
         console.warn("Supabase lookupOrder error:", err);
       }
+    }
+
+    // 3. Check local memory / localStorage fallback (if offline or Supabase unconfigured)
+    const localMatch = this.findOrder(query);
+    if (localMatch) {
+      return localMatch;
     }
 
     // 4. Fallback to server sync with target query
@@ -1010,11 +1104,31 @@ export const adminStore = {
     const cleanId = orderId ? String(orderId).trim().toLowerCase() : "";
     const cleanNum = orderNumber ? String(orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
 
-    // 1. Filter out of local orders
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    const filtered = orders.filter((o) => {
+    const matched = orders.find((o) => {
+      if (!o) return false;
       const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
       const oId = (o.id || "").trim().toLowerCase();
+      return (
+        (cleanNum && oNum === cleanNum) ||
+        (cleanId && oId === cleanId) ||
+        (cleanId && oNum === cleanId) ||
+        (cleanNum && oId === cleanNum)
+      );
+    });
+
+    const effectiveNum = (matched?.orderNumber || orderNumber || "").replace(/^#/, "").trim();
+    const effectiveId = (matched?.id || orderId || "").trim();
+    const normNum = effectiveNum.toLowerCase();
+    const normId = effectiveId.toLowerCase();
+
+    // 1. Filter out of local orders
+    const filtered = orders.filter((o) => {
+      if (!o) return false;
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const oId = (o.id || "").trim().toLowerCase();
+      if (normNum && oNum === normNum) return false;
+      if (normId && oId === normId) return false;
       if (cleanNum && oNum === cleanNum) return false;
       if (cleanId && oId === cleanId) return false;
       return true;
@@ -1022,11 +1136,15 @@ export const adminStore = {
     safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
 
     // Clean up unviewed state if deleted
+    if (normNum) this.markOrderViewed(normNum);
+    if (normId) this.markOrderViewed(normId);
     if (cleanNum) this.markOrderViewed(cleanNum);
     if (cleanId) this.markOrderViewed(cleanId);
 
     // 2. Add to tombstone registry so sync never resurrects it
     const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    if (normNum && !deleted.includes(normNum)) deleted.push(normNum);
+    if (normId && !deleted.includes(normId)) deleted.push(normId);
     if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
     if (cleanId && !deleted.includes(cleanId)) deleted.push(cleanId);
     safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deleted.slice(-200));
@@ -1036,13 +1154,13 @@ export const adminStore = {
       const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
       const updatedCustomerIds = customerOrderIds.filter((id) => {
         const c = String(id).replace(/^#/, "").trim().toLowerCase();
-        return c !== cleanNum && c !== cleanId;
+        return c !== normNum && c !== normId && c !== cleanNum && c !== cleanId;
       });
       safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, updatedCustomerIds);
       const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
       if (lastId) {
         const cleanLast = String(lastId).replace(/^#/, "").trim().toLowerCase();
-        if (cleanLast === cleanNum || cleanLast === cleanId) {
+        if (cleanLast === normNum || cleanLast === normId || cleanLast === cleanNum || cleanLast === cleanId) {
           localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
         }
       }
@@ -1054,26 +1172,44 @@ export const adminStore = {
     fetch("/api/orders/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, orderNumber }),
+      body: JSON.stringify({
+        orderId: effectiveId || orderId,
+        orderNumber: effectiveNum || orderNumber,
+      }),
     }).catch(() => {});
 
     // 5. Delete from Supabase cloud database (AWAITED to prevent race condition with sync)
     if (isSupabaseConfigured()) {
       try {
-        await deleteOrderFromSupabase(cleanNum || cleanId, { orderId, orderNumber });
+        await deleteOrderFromSupabase(normNum || normId || cleanNum || cleanId, {
+          orderId: effectiveId || orderId,
+          orderNumber: effectiveNum || orderNumber,
+        });
       } catch (err) {
         console.warn("Background Supabase order delete:", err);
       }
-      broadcastDeleteViaSupabase("order", orderId, orderNumber);
+      broadcastDeleteViaSupabase(
+        "order",
+        effectiveId || orderId,
+        effectiveNum || orderNumber,
+      );
     }
 
     // 6. Broadcast to other tabs & devices
-    broadcastEvent("order_delete", { orderId, orderNumber, action: "delete" });
+    broadcastEvent("order_delete", {
+      orderId: effectiveId || orderId,
+      orderNumber: effectiveNum || orderNumber,
+      action: "delete",
+    });
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("bwc_order_change", {
-          detail: { orderId, orderNumber, action: "delete" },
+          detail: {
+            orderId: effectiveId || orderId,
+            orderNumber: effectiveNum || orderNumber,
+            action: "delete",
+          },
         }),
       );
     }
@@ -1213,9 +1349,29 @@ export const adminStore = {
       : "";
 
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    const matched = reservations.find((r) => {
+      if (!r) return false;
+      const rNum = (r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
+      const rId = (r.id || "").trim().toLowerCase();
+      return (
+        (cleanNum && rNum === cleanNum) ||
+        (cleanId && rId === cleanId) ||
+        (cleanId && rNum === cleanId) ||
+        (cleanNum && rId === cleanNum)
+      );
+    });
+
+    const effectiveNum = (matched?.reservationNumber || reservationNumber || "").replace(/^#/, "").trim();
+    const effectiveId = (matched?.id || resId || "").trim();
+    const normNum = effectiveNum.toLowerCase();
+    const normId = effectiveId.toLowerCase();
+
+    // 1. Filter out of local reservations
     const filtered = reservations.filter((r) => {
       const rNum = (r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase();
       const rId = (r.id || "").trim().toLowerCase();
+      if (normNum && rNum === normNum) return false;
+      if (normId && rId === normId) return false;
       if (cleanNum && rNum === cleanNum) return false;
       if (cleanId && rId === cleanId) return false;
       return true;
@@ -1223,11 +1379,15 @@ export const adminStore = {
     safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
 
     // Clean up unviewed state if deleted
+    if (normNum) this.markReservationViewed(normNum);
+    if (normId) this.markReservationViewed(normId);
     if (cleanNum) this.markReservationViewed(cleanNum);
     if (cleanId) this.markReservationViewed(cleanId);
 
     // 2. Add to tombstone registry so sync never resurrects it
     const deleted = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
+    if (normNum && !deleted.includes(normNum)) deleted.push(normNum);
+    if (normId && !deleted.includes(normId)) deleted.push(normId);
     if (cleanNum && !deleted.includes(cleanNum)) deleted.push(cleanNum);
     if (cleanId && !deleted.includes(cleanId)) deleted.push(cleanId);
     safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, deleted.slice(-200));
@@ -1236,26 +1396,44 @@ export const adminStore = {
     fetch("/api/reservations/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resId, reservationNumber }),
+      body: JSON.stringify({
+        resId: effectiveId || resId,
+        reservationNumber: effectiveNum || reservationNumber,
+      }),
     }).catch(() => {});
 
     // 4. Delete from Supabase cloud database (AWAITED to prevent race condition)
     if (isSupabaseConfigured()) {
       try {
-        await deleteReservationFromSupabase(cleanNum || cleanId, { resId, reservationNumber });
+        await deleteReservationFromSupabase(normNum || normId || cleanNum || cleanId, {
+          resId: effectiveId || resId,
+          reservationNumber: effectiveNum || reservationNumber,
+        });
       } catch (err) {
         console.warn("Background Supabase reservation delete:", err);
       }
-      broadcastDeleteViaSupabase("reservation", resId, reservationNumber);
+      broadcastDeleteViaSupabase(
+        "reservation",
+        effectiveId || resId,
+        effectiveNum || reservationNumber,
+      );
     }
 
     // 5. Broadcast
-    broadcastEvent("reservation_delete", { resId, reservationNumber, action: "delete" });
+    broadcastEvent("reservation_delete", {
+      resId: effectiveId || resId,
+      reservationNumber: effectiveNum || reservationNumber,
+      action: "delete",
+    });
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("bwc_reservation_change", {
-          detail: { resId, reservationNumber, action: "delete" },
+          detail: {
+            resId: effectiveId || resId,
+            reservationNumber: effectiveNum || reservationNumber,
+            action: "delete",
+          },
         }),
       );
     }
@@ -2021,7 +2199,10 @@ export const adminStore = {
             return (roNum && oNum && roNum === oNum) || (roId && oId && roId === oId);
           });
           if (existingIdx === -1) {
-            remoteOrders.push(ro);
+            // Only add unindexed orders from server cache if Supabase is unconfigured/offline
+            if (!isSupabaseConfigured() || !Array.isArray(sbOrders)) {
+              remoteOrders.push(ro);
+            }
           } else {
             const cur = remoteOrders[existingIdx]!;
             const curUpdated = cur.statusUpdatedAt || cur.timestamp || 0;
@@ -2060,7 +2241,17 @@ export const adminStore = {
             return (rrNum && rNum && rrNum === rNum) || (rrId && rId && rrId === rId);
           });
           if (existingIdx === -1) {
-            remoteReservations.push(rr);
+            // Only add unindexed reservations from server cache if Supabase is unconfigured/offline
+            if (!isSupabaseConfigured() || !Array.isArray(sbReservations)) {
+              remoteReservations.push(rr);
+            }
+          } else {
+            const cur = remoteReservations[existingIdx]!;
+            const curUpdated = cur.timestamp || 0;
+            const rrUpdated = rr.timestamp || 0;
+            if (rrUpdated > curUpdated) {
+              remoteReservations[existingIdx] = { ...cur, ...rr };
+            }
           }
         }
       }
