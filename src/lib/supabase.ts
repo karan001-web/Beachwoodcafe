@@ -69,8 +69,20 @@ function getEnvVar(key: string): string {
   return "";
 }
 
-const rawSupabaseUrl = getEnvVar("VITE_SUPABASE_URL") || getEnvVar("SUPABASE_URL");
-const rawSupabaseAnonKey = getEnvVar("VITE_SUPABASE_ANON_KEY") || getEnvVar("SUPABASE_ANON_KEY");
+const DEFAULT_SUPABASE_URL = "https://pzsdtlnbetfvrzfkphep.supabase.co";
+const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_uscZ4Khg7Arye1PKQvpCBg_BP4J0Fgl";
+
+const rawSupabaseUrl =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
+  getEnvVar("VITE_SUPABASE_URL") ||
+  getEnvVar("SUPABASE_URL") ||
+  DEFAULT_SUPABASE_URL;
+
+const rawSupabaseAnonKey =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
+  getEnvVar("VITE_SUPABASE_ANON_KEY") ||
+  getEnvVar("SUPABASE_ANON_KEY") ||
+  DEFAULT_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = (): boolean => {
   if (!rawSupabaseUrl || !rawSupabaseAnonKey) return false;
@@ -534,6 +546,20 @@ export async function deleteReservationFromSupabase(
     return true;
   } catch (err) {
     console.warn("Supabase delete reservation failed:", err);
+    return false;
+  }
+}
+
+export async function clearAllFromSupabase(): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    await Promise.all([
+      supabase.from("orders").delete().neq("id", "_never_"),
+      supabase.from("reservations").delete().neq("id", "_never_"),
+    ]);
+    return true;
+  } catch (err) {
+    console.warn("Supabase clear all failed:", err);
     return false;
   }
 }

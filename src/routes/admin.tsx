@@ -417,7 +417,7 @@ export function AdminPage() {
 
     // 1. Order changes (New order, status change, cancellation)
     const handleOrderChange = (e: any) => {
-      loadData();
+      loadData(e?.detail?.action !== "sync_merge");
 
       if (e?.detail?.action === "cancel") {
         playKitchenChime("cancellation");
@@ -470,7 +470,7 @@ export function AdminPage() {
 
     // 2. Reservation changes (New table booking)
     const handleReservationChange = (e: any) => {
-      loadData();
+      loadData(e?.detail?.action !== "sync_merge");
 
       if (e?.detail?.action === "add") {
         playKitchenChime("reservation");
@@ -560,7 +560,15 @@ export function AdminPage() {
 
     // Background server sync for cross-device & mobile orders
     if (triggerSync) {
-      adminStore.syncWithServer().catch(() => {});
+      adminStore
+        .syncWithServer()
+        .then(() => {
+          setOrders(adminStore.getOrders());
+          setReservations(adminStore.getReservations());
+          setUnviewedOrderIds(adminStore.getUnviewedOrderIds());
+          setUnviewedBookingIds(adminStore.getUnviewedReservationIds());
+        })
+        .catch(() => {});
     }
   };
 

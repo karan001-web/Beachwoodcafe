@@ -12,6 +12,7 @@ import {
   upsertReservationToSupabase,
   updateReservationStatusInSupabase,
   deleteReservationFromSupabase,
+  clearAllFromSupabase,
   subscribeToSupabaseRealtime,
   broadcastDeleteViaSupabase,
 } from "./supabase";
@@ -1912,6 +1913,14 @@ export const adminStore = {
       // server clear API offline
     }
 
+    if (isSupabaseConfigured()) {
+      try {
+        await clearAllFromSupabase();
+      } catch (err) {
+        console.warn("Supabase clearAll error:", err);
+      }
+    }
+
     broadcastEvent("clear_all", { timestamp: now });
 
     if (typeof window !== "undefined") {
@@ -2169,11 +2178,14 @@ export const adminStore = {
         isSupabaseConfigured() ? fetchReservationsFromSupabase() : Promise.resolve([]),
       ]);
 
+      const safeSbOrders: AdminOrder[] = Array.isArray(sbOrders) ? sbOrders : [];
+      const safeSbReservations: AdminReservation[] = Array.isArray(sbReservations) ? sbReservations : [];
+
       const remoteOrders: AdminOrder[] = [];
       const remoteReservations: AdminReservation[] = [];
 
       // Add Supabase orders first (authoritative persistent cloud database)
-      for (const so of sbOrders) {
+      for (const so of safeSbOrders) {
         if (so) remoteOrders.push(so);
       }
 
@@ -2215,7 +2227,7 @@ export const adminStore = {
       }
 
       // Add Supabase reservations first
-      for (const sr of sbReservations) {
+      for (const sr of safeSbReservations) {
         if (sr) remoteReservations.push(sr);
       }
 
@@ -2296,10 +2308,13 @@ export const adminStore = {
           const existsRemotely =
             (locId && supabaseOrderKeys.has(locId)) || (locNum && supabaseOrderKeys.has(locNum));
 
-          if (existsRemotely) {
+          // Allow a brief 20-second grace window for brand-new in-flight orders just placed on this client
+          const isJustPlaced = loc.timestamp && Date.now() - loc.timestamp < 20000;
+
+          if (existsRemotely || isJustPlaced) {
             survivingOrders.push(loc);
           } else {
-            // It does not exist in Supabase! It was deleted!
+            // It does not exist in Supabase! It was deleted on another device or purged!
             hasOrderDeletions = true;
             if (locId && !deletedOrderIds.includes(locId)) deletedOrderIds.push(locId);
             if (locNum && !deletedOrderIds.includes(locNum)) deletedOrderIds.push(locNum);
@@ -2342,7 +2357,7 @@ export const adminStore = {
 
       if (isSupabaseConfigured() && Array.isArray(sbReservations)) {
         const supabaseResKeys = new Set<string>();
-        for (const sr of sbReservations) {
+        for (const sr of safeSbReservations) {
           if (!sr) continue;
           if (sr.id) supabaseResKeys.add(String(sr.id).trim().toLowerCase());
           if (sr.reservationNumber) {
@@ -2366,7 +2381,9 @@ export const adminStore = {
           const existsRemotely =
             (locId && supabaseResKeys.has(locId)) || (locNum && supabaseResKeys.has(locNum));
 
-          if (existsRemotely) {
+          const isJustPlaced = loc.timestamp && Date.now() - loc.timestamp < 20000;
+
+          if (existsRemotely || isJustPlaced) {
             survivingRes.push(loc);
           } else {
             hasResDeletions = true;
@@ -2402,6 +2419,41 @@ export const adminStore = {
       // Merge remote orders into local state
       const mergedOrders = [...localOrders];
       const isUserAdmin = this.isAuthenticated();
+
+      // For authenticated Admin: directly reflect authoritative remote orders from Supabase!
+      if (isUserAdmin && isSupabaseConfigured() && Array.isArray(sbOrders)) {
+        mergedOrders.length = 0;
+        const seenOrderKeys = new Set<string>();
+
+        // 1. Authoritative orders from Supabase
+        for (const ro of remoteOrders) {
+          if (!ro) continue;
+          const k1 = ro.orderNumber ? String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const k2 = ro.id ? String(ro.id).trim().toLowerCase() : "";
+          if (k1 && deletedOrderIds.includes(k1)) continue;
+          if (k2 && deletedOrderIds.includes(k2)) continue;
+          if (clearedAt && ro.timestamp && ro.timestamp <= clearedAt) continue;
+          const primaryKey = k1 || k2;
+          if (primaryKey && !seenOrderKeys.has(primaryKey)) {
+            seenOrderKeys.add(primaryKey);
+            mergedOrders.push(ro);
+          }
+        }
+
+        // 2. Plus any in-flight local orders placed in last 20 seconds
+        for (const lo of localOrders) {
+          if (!lo) continue;
+          const isJustPlaced = lo.timestamp && Date.now() - lo.timestamp < 20000;
+          if (!isJustPlaced) continue;
+          const k1 = lo.orderNumber ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const k2 = lo.id ? String(lo.id).trim().toLowerCase() : "";
+          const primaryKey = k1 || k2;
+          if (primaryKey && !seenOrderKeys.has(primaryKey)) {
+            seenOrderKeys.add(primaryKey);
+            mergedOrders.push(lo);
+          }
+        }
+      }
 
       const cleanTarget = targetQuery
         ? String(targetQuery).replace(/^#/, "").trim().toLowerCase()
@@ -2511,48 +2563,82 @@ export const adminStore = {
 
       // Merge remote reservations into local state
       const mergedReservations = [...localReservations];
-      for (const remote of remoteReservations) {
-        if (!remote) continue;
-        const cleanRemoteResNum = remote.reservationNumber
-          ? String(remote.reservationNumber).replace(/^#/, "").trim().toLowerCase()
-          : "";
-        const cleanRemoteId = remote.id ? String(remote.id).trim().toLowerCase() : "";
 
-        // Skip reservations that have been deleted or were placed before clear-all
-        if (cleanRemoteResNum && deletedResIds.includes(cleanRemoteResNum)) continue;
-        if (cleanRemoteId && deletedResIds.includes(cleanRemoteId)) continue;
-        if (clearedAt && remote.timestamp && remote.timestamp <= clearedAt) continue;
+      // For authenticated Admin: directly reflect authoritative remote reservations from Supabase!
+      if (isUserAdmin && isSupabaseConfigured() && Array.isArray(sbReservations)) {
+        mergedReservations.length = 0;
+        const seenResKeys = new Set<string>();
 
-        const existingIdx = mergedReservations.findIndex((r) => {
-          if (!r) return false;
-          const rNum = r.reservationNumber
-            ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+        // 1. Authoritative reservations from Supabase
+        for (const rr of remoteReservations) {
+          if (!rr) continue;
+          const k1 = rr.reservationNumber ? String(rr.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const k2 = rr.id ? String(rr.id).trim().toLowerCase() : "";
+          if (k1 && deletedResIds.includes(k1)) continue;
+          if (k2 && deletedResIds.includes(k2)) continue;
+          if (clearedAt && rr.timestamp && rr.timestamp <= clearedAt) continue;
+          const primaryKey = k1 || k2;
+          if (primaryKey && !seenResKeys.has(primaryKey)) {
+            seenResKeys.add(primaryKey);
+            mergedReservations.push(rr);
+          }
+        }
+
+        // 2. Plus any in-flight local reservations placed in last 20 seconds
+        for (const lr of localReservations) {
+          if (!lr) continue;
+          const isJustPlaced = lr.timestamp && Date.now() - lr.timestamp < 20000;
+          if (!isJustPlaced) continue;
+          const k1 = lr.reservationNumber ? String(lr.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+          const k2 = lr.id ? String(lr.id).trim().toLowerCase() : "";
+          const primaryKey = k1 || k2;
+          if (primaryKey && !seenResKeys.has(primaryKey)) {
+            seenResKeys.add(primaryKey);
+            mergedReservations.push(lr);
+          }
+        }
+      } else {
+        for (const remote of remoteReservations) {
+          if (!remote) continue;
+          const cleanRemoteResNum = remote.reservationNumber
+            ? String(remote.reservationNumber).replace(/^#/, "").trim().toLowerCase()
             : "";
-          const rId = r.id ? String(r.id).trim().toLowerCase() : "";
-          if (cleanRemoteResNum && rNum === cleanRemoteResNum) return true;
-          if (cleanRemoteId && rId === cleanRemoteId) return true;
-          return false;
-        });
+          const cleanRemoteId = remote.id ? String(remote.id).trim().toLowerCase() : "";
 
-        if (existingIdx === -1) {
-          if (isUserAdmin) {
+          // Skip reservations that have been deleted or were placed before clear-all
+          if (cleanRemoteResNum && deletedResIds.includes(cleanRemoteResNum)) continue;
+          if (cleanRemoteId && deletedResIds.includes(cleanRemoteId)) continue;
+          if (clearedAt && remote.timestamp && remote.timestamp <= clearedAt) continue;
+
+          const existingIdx = mergedReservations.findIndex((r) => {
+            if (!r) return false;
+            const rNum = r.reservationNumber
+              ? String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+              : "";
+            const rId = r.id ? String(r.id).trim().toLowerCase() : "";
+            if (cleanRemoteResNum && rNum === cleanRemoteResNum) return true;
+            if (cleanRemoteId && rId === cleanRemoteId) return true;
+            return false;
+          });
+
+          if (existingIdx === -1) {
             mergedReservations.unshift(remote);
             newReservationsCount++;
             this.addUnviewedReservation(remote.reservationNumber || remote.id);
-          }
-        } else {
-          const current = mergedReservations[existingIdx];
-          if (current && remote.status !== current.status) {
-            mergedReservations[existingIdx] = { ...current, ...remote };
-            updatedReservationsCount++;
+          } else {
+            const current = mergedReservations[existingIdx];
+            if (current && remote.status !== current.status) {
+              mergedReservations[existingIdx] = { ...current, ...remote };
+              updatedReservationsCount++;
+            }
           }
         }
       }
 
-      if (newOrdersCount > 0 || updatedOrdersCount > 0 || hasOrderDeletions) {
+      if (newOrdersCount > 0 || updatedOrdersCount > 0 || hasOrderDeletions || (isUserAdmin && isSupabaseConfigured() && Array.isArray(sbOrders))) {
         safeSetJSON(
           STORAGE_KEYS.ORDERS,
-          mergedOrders.sort((a, b) => b.timestamp - a.timestamp),
+          mergedOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
         );
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
@@ -2565,10 +2651,10 @@ export const adminStore = {
         );
       }
 
-      if (newReservationsCount > 0 || updatedReservationsCount > 0 || hasResDeletions) {
+      if (newReservationsCount > 0 || updatedReservationsCount > 0 || hasResDeletions || (isUserAdmin && isSupabaseConfigured() && Array.isArray(sbReservations))) {
         safeSetJSON(
           STORAGE_KEYS.RESERVATIONS,
-          mergedReservations.sort((a, b) => b.timestamp - a.timestamp),
+          mergedReservations.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
         );
         window.dispatchEvent(
           new CustomEvent("bwc_reservation_change", {
