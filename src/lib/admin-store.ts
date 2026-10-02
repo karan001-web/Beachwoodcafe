@@ -13,6 +13,7 @@ import {
   updateReservationStatusInSupabase,
   deleteReservationFromSupabase,
   subscribeToSupabaseRealtime,
+  broadcastDeleteViaSupabase,
 } from "./supabase";
 
 export interface OrderItem {
@@ -848,6 +849,13 @@ export const adminStore = {
     const cleanQuery = query.trim().toLowerCase().replace(/^#/, "");
     const cleanDigits = query.replace(/\D/g, "");
     const hasAlpha = /[a-zA-Z]/.test(query);
+
+    // 0. Check if order was explicitly deleted/tombstoned
+    const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    if (deletedOrderIds.includes(cleanQuery)) {
+      return undefined;
+    }
+
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
 
     // 1. Exact order number or ID match (highest priority)
@@ -855,6 +863,7 @@ export const adminStore = {
       if (!o) return false;
       const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
       const oId = (o.id || "").trim().toLowerCase();
+      if (deletedOrderIds.includes(oNum) || deletedOrderIds.includes(oId)) return false;
       return (oNum && oNum === cleanQuery) || (oId && oId === cleanQuery);
     });
     if (exactOrder) return exactOrder;
@@ -863,6 +872,9 @@ export const adminStore = {
     if (!hasAlpha && cleanDigits.length >= 10) {
       return orders.find((o) => {
         if (!o) return false;
+        const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const oId = (o.id || "").trim().toLowerCase();
+        if (deletedOrderIds.includes(oNum) || deletedOrderIds.includes(oId)) return false;
         const oPhone = (o.customerPhone || "").replace(/\D/g, "");
         return (
           oPhone.length >= 10 &&
@@ -934,23 +946,33 @@ export const adminStore = {
   getCustomerRecentOrders(): AdminOrder[] {
     if (typeof window === "undefined") return [];
     const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+    const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
     const result: AdminOrder[] = [];
+    const validCustomerIds: string[] = [];
 
     for (const num of customerOrderIds) {
       if (!num) continue;
       const cleanTarget = String(num).replace(/^#/, "").trim().toLowerCase();
+      if (deletedOrderIds.includes(cleanTarget)) continue;
+
       const match = orders.find((o) => {
         if (!o) return false;
         const oNum = o.orderNumber
           ? String(o.orderNumber).replace(/^#/, "").trim().toLowerCase()
           : "";
         const oId = o.id ? String(o.id).trim().toLowerCase() : "";
+        if (deletedOrderIds.includes(oNum) || deletedOrderIds.includes(oId)) return false;
         return (oNum && oNum === cleanTarget) || (oId && oId === cleanTarget);
       });
       if (match && !result.some((r) => r && r.orderNumber === match.orderNumber)) {
         result.push(match);
+        validCustomerIds.push(num);
       }
+    }
+
+    if (validCustomerIds.length !== customerOrderIds.length) {
+      safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, validCustomerIds);
     }
 
     return result.sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
@@ -958,7 +980,15 @@ export const adminStore = {
 
   getCustomerLastOrderId(): string | null {
     if (typeof window === "undefined") return null;
-    return localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+    const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+    if (!lastId) return null;
+    const clean = String(lastId).replace(/^#/, "").trim().toLowerCase();
+    const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+    if (deletedOrderIds.includes(clean)) {
+      localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+      return null;
+    }
+    return lastId;
   },
 
   recordCustomerOrderId(orderNumber: string) {
@@ -1010,8 +1040,11 @@ export const adminStore = {
       });
       safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, updatedCustomerIds);
       const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
-      if (lastId && (lastId === cleanNum || lastId === cleanId)) {
-        localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+      if (lastId) {
+        const cleanLast = String(lastId).replace(/^#/, "").trim().toLowerCase();
+        if (cleanLast === cleanNum || cleanLast === cleanId) {
+          localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+        }
       }
     } catch {
       // storage cleanup error ignored
@@ -1025,9 +1058,10 @@ export const adminStore = {
     }).catch(() => {});
 
     if (isSupabaseConfigured()) {
-      deleteOrderFromSupabase(cleanNum || cleanId).catch((err) =>
+      deleteOrderFromSupabase(cleanNum || cleanId, { orderId, orderNumber }).catch((err) =>
         console.warn("Background Supabase order delete:", err),
       );
+      broadcastDeleteViaSupabase("order", orderId, orderNumber);
     }
 
     // 5. Broadcast to other tabs & devices
@@ -1203,9 +1237,10 @@ export const adminStore = {
     }).catch(() => {});
 
     if (isSupabaseConfigured()) {
-      deleteReservationFromSupabase(cleanNum || cleanId).catch((err) =>
+      deleteReservationFromSupabase(cleanNum || cleanId, { resId, reservationNumber }).catch((err) =>
         console.warn("Background Supabase reservation delete:", err),
       );
+      broadcastDeleteViaSupabase("reservation", resId, reservationNumber);
     }
 
     // 4. Broadcast
@@ -2031,6 +2066,124 @@ export const adminStore = {
           ? parseInt(localStorage.getItem(STORAGE_KEYS.DATA_CLEARED_AT) || "0", 10)
           : 0;
 
+      // Reconcile deletions from authoritative Supabase cloud database:
+      // If an order/reservation exists locally on this device (placed earlier), but has been deleted from Supabase,
+      // purge it from local memory, customer history, and active tracker view.
+      if (isSupabaseConfigured() && Array.isArray(sbOrders)) {
+        const remoteOrderKeys = new Set<string>();
+        for (const ro of remoteOrders) {
+          if (!ro) continue;
+          if (ro.id) remoteOrderKeys.add(String(ro.id).trim().toLowerCase());
+          if (ro.orderNumber) {
+            const clean = String(ro.orderNumber).replace(/^#/, "").trim().toLowerCase();
+            if (clean) remoteOrderKeys.add(clean);
+          }
+        }
+
+        const now = Date.now();
+        const survivingOrders: AdminOrder[] = [];
+        const deletedCustomerIds = new Set<string>();
+
+        for (const loc of localOrders) {
+          if (!loc) continue;
+          const locId = loc.id ? String(loc.id).trim().toLowerCase() : "";
+          const locNum = loc.orderNumber
+            ? String(loc.orderNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
+          const locAge = now - (loc.timestamp || 0);
+
+          const existsRemotely =
+            (locId && remoteOrderKeys.has(locId)) || (locNum && remoteOrderKeys.has(locNum));
+          // Keep if it exists remotely or was placed within last 30s (in-flight checkout)
+          if (existsRemotely || locAge < 30000) {
+            survivingOrders.push(loc);
+          } else {
+            // It was deleted on Supabase / Admin portal!
+            if (locId && !deletedOrderIds.includes(locId)) deletedOrderIds.push(locId);
+            if (locNum && !deletedOrderIds.includes(locNum)) deletedOrderIds.push(locNum);
+            if (locId) deletedCustomerIds.add(locId);
+            if (locNum) deletedCustomerIds.add(locNum);
+
+            window.dispatchEvent(
+              new CustomEvent("bwc_order_change", {
+                detail: { orderId: loc.id, orderNumber: loc.orderNumber, action: "delete" },
+              }),
+            );
+          }
+        }
+
+        if (deletedCustomerIds.size > 0) {
+          const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+          const updatedCustomerIds = customerOrderIds.filter((cid) => {
+            const c = String(cid).replace(/^#/, "").trim().toLowerCase();
+            return !deletedCustomerIds.has(c);
+          });
+          safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, updatedCustomerIds);
+
+          const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+          if (
+            lastId &&
+            deletedCustomerIds.has(String(lastId).replace(/^#/, "").trim().toLowerCase())
+          ) {
+            localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+          }
+        }
+
+        safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deletedOrderIds.slice(-200));
+        localOrders.length = 0;
+        localOrders.push(...survivingOrders);
+      }
+
+      if (isSupabaseConfigured() && Array.isArray(sbReservations)) {
+        const remoteResKeys = new Set<string>();
+        for (const rr of remoteReservations) {
+          if (!rr) continue;
+          if (rr.id) remoteResKeys.add(String(rr.id).trim().toLowerCase());
+          if (rr.reservationNumber) {
+            const clean = String(rr.reservationNumber).replace(/^#/, "").trim().toLowerCase();
+            if (clean) remoteResKeys.add(clean);
+          }
+        }
+
+        const now = Date.now();
+        const survivingRes: AdminReservation[] = [];
+        const deletedCustomerResIds = new Set<string>();
+
+        for (const loc of localReservations) {
+          if (!loc) continue;
+          const locId = loc.id ? String(loc.id).trim().toLowerCase() : "";
+          const locNum = loc.reservationNumber
+            ? String(loc.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+            : "";
+          const locAge = now - (loc.timestamp || 0);
+
+          const existsRemotely =
+            (locId && remoteResKeys.has(locId)) || (locNum && remoteResKeys.has(locNum));
+          if (existsRemotely || locAge < 30000) {
+            survivingRes.push(loc);
+          } else {
+            if (locId && !deletedResIds.includes(locId)) deletedResIds.push(locId);
+            if (locNum && !deletedResIds.includes(locNum)) deletedResIds.push(locNum);
+            if (locId) deletedCustomerResIds.add(locId);
+            if (locNum) deletedCustomerResIds.add(locNum);
+
+            window.dispatchEvent(
+              new CustomEvent("bwc_reservation_change", {
+                detail: {
+                  resId: loc.id,
+                  reservationNumber: loc.reservationNumber,
+                  action: "delete",
+                },
+              }),
+            );
+          }
+        }
+
+        safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, deletedResIds.slice(-200));
+        localReservations.length = 0;
+        localReservations.push(...survivingRes);
+      }
+
       let newOrdersCount = 0;
       let updatedOrdersCount = 0;
       let newReservationsCount = 0;
@@ -2651,20 +2804,67 @@ export function initSupabaseSync() {
           .replace(/^#/, "")
           .toLowerCase();
         const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+
+        // Find match in local orders to resolve BOTH id and orderNumber
+        const matched = orders.find((o) => {
+          if (!o) return false;
+          const oId = String(o.id || "").toLowerCase();
+          const oNum = String(o.orderNumber || "").replace(/^#/, "").toLowerCase();
+          if (cleanNum && oNum === cleanNum) return true;
+          if (cleanId && oId === cleanId) return true;
+          return false;
+        });
+
+        const effectiveNum = matched?.orderNumber || orderNumber;
+        const effectiveId = matched?.id || id;
+        const normNum = effectiveNum ? String(effectiveNum).replace(/^#/, "").toLowerCase() : "";
+        const normId = effectiveId ? String(effectiveId).toLowerCase() : "";
+
         const filtered = orders.filter((o) => {
           if (!o) return false;
           const oId = String(o.id || "").toLowerCase();
           const oNum = String(o.orderNumber || "")
             .replace(/^#/, "")
             .toLowerCase();
-          if (cleanNum && oNum === cleanNum) return false;
-          if (cleanId && oId === cleanId) return false;
+          if (normNum && oNum === normNum) return false;
+          if (normId && oId === normId) return false;
           return true;
         });
         safeSetJSON(STORAGE_KEYS.ORDERS, filtered);
+
+        // Record into DELETED_ORDER_IDS tombstone registry
+        const deletedIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
+        let updatedDeleted = [...deletedIds];
+        if (effectiveId && !updatedDeleted.includes(effectiveId)) updatedDeleted.push(effectiveId);
+        if (effectiveNum && !updatedDeleted.includes(effectiveNum)) updatedDeleted.push(effectiveNum);
+        if (normNum && !updatedDeleted.includes(normNum)) updatedDeleted.push(normNum);
+        safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, updatedDeleted.slice(-200));
+
+        // Purge from CUSTOMER_ORDER_IDS & LAST_ORDER_ID
+        try {
+          const custIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+          const filteredCustIds = custIds.filter((cid) => {
+            const cClean = String(cid || "").replace(/^#/, "").toLowerCase();
+            if (normId && normId === cClean) return false;
+            if (normNum && normNum === cClean) return false;
+            return true;
+          });
+          safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, filteredCustIds);
+
+          const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+          if (lastId) {
+            const lastClean = String(lastId).replace(/^#/, "").toLowerCase();
+            if ((normId && normId === lastClean) || (normNum && normNum === lastClean)) {
+              localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+            }
+          }
+        } catch {
+          // ignore
+        }
+
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
-            detail: { orderId: id, orderNumber, action: "delete" },
+            detail: { orderId: effectiveId, orderNumber: effectiveNum, action: "delete" },
           }),
         );
       },
@@ -2730,20 +2930,43 @@ export function initSupabaseSync() {
           .replace(/^#/, "")
           .toLowerCase();
         const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+
+        const matched = reservations.find((r) => {
+          if (!r) return false;
+          const rId = String(r.id || "").toLowerCase();
+          const rNum = String(r.reservationNumber || "").replace(/^#/, "").toLowerCase();
+          if (cleanNum && rNum === cleanNum) return true;
+          if (cleanId && rId === cleanId) return true;
+          return false;
+        });
+
+        const effectiveNum = matched?.reservationNumber || reservationNumber;
+        const effectiveId = matched?.id || id;
+        const normNum = effectiveNum ? String(effectiveNum).replace(/^#/, "").toLowerCase() : "";
+        const normId = effectiveId ? String(effectiveId).toLowerCase() : "";
+
         const filtered = reservations.filter((r) => {
           if (!r) return false;
           const rId = String(r.id || "").toLowerCase();
           const rNum = String(r.reservationNumber || "")
             .replace(/^#/, "")
             .toLowerCase();
-          if (cleanNum && rNum === cleanNum) return false;
-          if (cleanId && rId === cleanId) return false;
+          if (normNum && rNum === normNum) return false;
+          if (normId && rId === normId) return false;
           return true;
         });
         safeSetJSON(STORAGE_KEYS.RESERVATIONS, filtered);
+
+        const deletedResIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
+        let updatedDeletedRes = [...deletedResIds];
+        if (effectiveId && !updatedDeletedRes.includes(effectiveId)) updatedDeletedRes.push(effectiveId);
+        if (effectiveNum && !updatedDeletedRes.includes(effectiveNum)) updatedDeletedRes.push(effectiveNum);
+        if (normNum && !updatedDeletedRes.includes(normNum)) updatedDeletedRes.push(normNum);
+        safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, updatedDeletedRes.slice(-200));
+
         window.dispatchEvent(
           new CustomEvent("bwc_reservation_change", {
-            detail: { resId: id, reservationNumber, action: "delete" },
+            detail: { resId: effectiveId, reservationNumber: effectiveNum, action: "delete" },
           }),
         );
       },

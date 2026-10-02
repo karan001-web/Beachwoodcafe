@@ -383,6 +383,10 @@ export async function deleteOrderFromSupabase(
       if (clean) {
         terms.add(clean);
         terms.add(`#${clean}`);
+        terms.add(clean.toUpperCase());
+        terms.add(`#${clean.toUpperCase()}`);
+        terms.add(clean.toLowerCase());
+        terms.add(`#${clean.toLowerCase()}`);
       }
     };
 
@@ -504,6 +508,10 @@ export async function deleteReservationFromSupabase(
       if (clean) {
         terms.add(clean);
         terms.add(`#${clean}`);
+        terms.add(clean.toUpperCase());
+        terms.add(`#${clean.toUpperCase()}`);
+        terms.add(clean.toLowerCase());
+        terms.add(`#${clean.toLowerCase()}`);
       }
     };
 
@@ -531,8 +539,34 @@ export async function deleteReservationFromSupabase(
 }
 
 // ============================================================================
-// REALTIME SUBSCRIPTIONS
+// REALTIME SUBSCRIPTIONS & BROADCAST
 // ============================================================================
+
+export function broadcastDeleteViaSupabase(
+  type: "order" | "reservation",
+  id?: string,
+  number?: string,
+) {
+  if (!supabase) return;
+  try {
+    const channel = supabase.channel("beachwood-cafe-live-sync");
+    if (type === "order") {
+      channel.send({
+        type: "broadcast",
+        event: "order_deleted",
+        payload: { orderId: id, orderNumber: number },
+      });
+    } else {
+      channel.send({
+        type: "broadcast",
+        event: "reservation_deleted",
+        payload: { resId: id, reservationNumber: number },
+      });
+    }
+  } catch (err) {
+    console.warn("Failed to broadcast delete via Supabase:", err);
+  }
+}
 
 export function subscribeToSupabaseRealtime(callbacks: {
   onOrderInserted?: (order: AdminOrder) => void;
@@ -547,6 +581,16 @@ export function subscribeToSupabaseRealtime(callbacks: {
   try {
     const channel = supabase
       .channel("beachwood-cafe-live-sync")
+      .on("broadcast", { event: "order_deleted" }, (payload) => {
+        if (callbacks.onOrderDeleted && payload?.payload) {
+          callbacks.onOrderDeleted(payload.payload.orderId, payload.payload.orderNumber);
+        }
+      })
+      .on("broadcast", { event: "reservation_deleted" }, (payload) => {
+        if (callbacks.onReservationDeleted && payload?.payload) {
+          callbacks.onReservationDeleted(payload.payload.resId, payload.payload.reservationNumber);
+        }
+      })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, (payload) => {
         if (payload.new && callbacks.onOrderInserted) {
           callbacks.onOrderInserted(rowToOrder(payload.new));

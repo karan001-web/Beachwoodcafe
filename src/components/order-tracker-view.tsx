@@ -279,6 +279,10 @@ export function OrderTrackerView({
               refreshed.cancelledAt !== current.cancelledAt)
           ) {
             setSelectedOrder(refreshed);
+          } else if (!refreshed) {
+            setSelectedOrder(null);
+            setTargetOrderNumber(null);
+            setRecentOrders(adminStore.getCustomerRecentOrders());
           }
         }
       } catch {
@@ -289,7 +293,28 @@ export function OrderTrackerView({
     const handleOrderChange = (e?: any) => {
       const changedOrderNum = e?.detail?.orderNumber;
       const changedOrderId = e?.detail?.orderId;
+      const action = e?.detail?.action;
       const current = selectedOrderRef.current;
+
+      // Handle delete action explicitly
+      if (action === "delete") {
+        if (current) {
+          const currentNum = safeOrderNumber(current.orderNumber).toLowerCase();
+          const currentId = String(current.id || "").trim().toLowerCase();
+          const evNum = changedOrderNum ? safeOrderNumber(changedOrderNum).toLowerCase() : "";
+          const evId = String(changedOrderId || "").trim().toLowerCase();
+
+          const isOurOrder = (evNum && evNum === currentNum) || (evId && evId === currentId);
+          if (isOurOrder) {
+            setSelectedOrder(null);
+            setTargetOrderNumber(null);
+            setRecentOrders(adminStore.getCustomerRecentOrders());
+            return;
+          }
+        }
+        setRecentOrders(adminStore.getCustomerRecentOrders());
+        return;
+      }
 
       // If we are currently tracking an order:
       if (current) {
@@ -320,6 +345,9 @@ export function OrderTrackerView({
           adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id);
         if (refreshed) {
           setSelectedOrder(refreshed);
+        } else {
+          setSelectedOrder(null);
+          setTargetOrderNumber(null);
         }
         const recents = adminStore.getCustomerRecentOrders();
         setRecentOrders(recents);
