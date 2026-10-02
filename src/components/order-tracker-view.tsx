@@ -170,15 +170,11 @@ export function OrderTrackerView({
 
   // Helper to refresh order list and selection
   const refreshData = (forceOrderNumber?: string) => {
-    const allOrders = adminStore.getOrders();
-    let recents = adminStore.getCustomerRecentOrders();
-    // Only fall back to allOrders if admin user is viewing the track view
-    if (adminStore.isAuthenticated() && recents.length === 0 && allOrders.length > 0) {
-      recents = allOrders.slice(0, 10);
-    }
+    // Only customer orders placed or explicitly searched on THIS device/browser
+    const recents = adminStore.getCustomerRecentOrders();
     setRecentOrders(recents);
 
-    // 1. If a specific order was explicitly requested, prioritize it
+    // 1. If a specific order was explicitly requested via parameter, prioritize it
     if (forceOrderNumber) {
       const match = adminStore.findOrder(forceOrderNumber);
       if (match) {
@@ -188,12 +184,9 @@ export function OrderTrackerView({
       }
     }
 
-    // 2. If actively tracking an order, keep tracking THAT exact order
-    const activeTarget =
-      selectedOrderRef.current?.orderNumber || targetOrderNumber || initialOrderNumber;
-
-    if (activeTarget) {
-      const match = adminStore.findOrder(activeTarget);
+    // 2. If an initialOrderNumber was passed (from URL param or modal prop)
+    if (initialOrderNumber) {
+      const match = adminStore.findOrder(initialOrderNumber);
       if (match) {
         setTargetOrderNumber(match.orderNumber);
         setSelectedOrder(match);
@@ -201,22 +194,58 @@ export function OrderTrackerView({
       }
     }
 
-    // 3. Otherwise select last placed order
+    // 3. If actively tracking an order that belongs to this customer/device
+    const activeTarget = selectedOrderRef.current?.orderNumber || targetOrderNumber;
+    if (activeTarget) {
+      const isDeviceOrder = recents.some((o) => {
+        if (!o) return false;
+        const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const oId = (o.id || "").trim().toLowerCase();
+        const cleanT = activeTarget.replace(/^#/, "").trim().toLowerCase();
+        return (oNum && oNum === cleanT) || (oId && oId === cleanT);
+      });
+
+      if (isDeviceOrder) {
+        const match = adminStore.findOrder(activeTarget);
+        if (match) {
+          setTargetOrderNumber(match.orderNumber);
+          setSelectedOrder(match);
+          return;
+        }
+      }
+    }
+
+    // 4. Otherwise select last placed order on THIS device if in recents
     const lastId = adminStore.getCustomerLastOrderId();
     if (lastId) {
-      const match = adminStore.findOrder(lastId);
-      if (match) {
-        setTargetOrderNumber(match.orderNumber);
-        setSelectedOrder(match);
-        return;
+      const isDeviceOrder = recents.some((o) => {
+        if (!o) return false;
+        const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const oId = (o.id || "").trim().toLowerCase();
+        const cleanT = lastId.replace(/^#/, "").trim().toLowerCase();
+        return (oNum && oNum === cleanT) || (oId && oId === cleanT);
+      });
+
+      if (isDeviceOrder) {
+        const match = adminStore.findOrder(lastId);
+        if (match) {
+          setTargetOrderNumber(match.orderNumber);
+          setSelectedOrder(match);
+          return;
+        }
       }
     }
 
-    // 4. Otherwise pick top recent order
+    // 5. Otherwise pick top recent order belonging to this device
     if (recents.length > 0 && recents[0]) {
       setTargetOrderNumber(recents[0].orderNumber);
       setSelectedOrder(recents[0]);
+      return;
     }
+
+    // 6. No orders belong to this device - leave state clean (No Active Order Selected)
+    setTargetOrderNumber(null);
+    setSelectedOrder(null);
   };
 
   // Load orders and initial selection on mount, with cloud server sync
@@ -295,8 +324,12 @@ export function OrderTrackerView({
         const recents = adminStore.getCustomerRecentOrders();
         setRecentOrders(recents);
       } else {
-        // No order selected yet, initial load
-        refreshData();
+        // No order selected yet on this device: only update device recents list, do not auto-select incoming foreign orders
+        const recents = adminStore.getCustomerRecentOrders();
+        setRecentOrders(recents);
+        if (initialOrderNumber) {
+          refreshData(initialOrderNumber);
+        }
       }
     };
 
@@ -508,7 +541,8 @@ export function OrderTrackerView({
   };
 
   const currentStepIdx = selectedOrder ? getStepIndex(selectedOrder.status) : 0;
-  const isAdminUser = typeof window !== "undefined" && adminStore.isAuthenticated();
+  // Customer order tracking is strictly customer-facing (Live Kitchen Sync)
+  const isAdminUser = false;
 
   return (
     <div
