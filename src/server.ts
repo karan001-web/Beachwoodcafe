@@ -506,6 +506,275 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
     }
   }
 
+  // 7. Stripe: Direct Test Payment Processing
+  if (path === "/api/stripe/process-payment" || path === "/api/stripe/process-payment/") {
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        const {
+          amount,
+          orderNumber,
+          customerName,
+          customerEmail,
+          customerPhone,
+          cardNumber,
+          cardExp,
+          cardCvc,
+          cardZip,
+          testScenario,
+        } = body;
+
+        const secretKey =
+          process.env.STRIPE_SECRET_KEY || process.env.VITE_STRIPE_SECRET_KEY || "";
+
+        const numAmount = typeof amount === "number" ? amount : parseFloat(String(amount || 0));
+        const amountInCents = Math.max(50, Math.round(numAmount * 100)); // Minimum Stripe charge is $0.50
+
+        // Normalize card number to determine Stripe test token/scenario
+        const cleanDigits = String(cardNumber || "").replace(/[^0-9]/g, "");
+        let paymentMethodToken = "pm_card_visa";
+
+        if (
+          testScenario === "decline" ||
+          cleanDigits === "4000000000000002" ||
+          cleanDigits.endsWith("0002")
+        ) {
+          paymentMethodToken = "pm_card_chargeDeclined";
+        } else if (
+          testScenario === "insufficient_funds" ||
+          cleanDigits === "4000000000000999" ||
+          cleanDigits.endsWith("0999")
+        ) {
+          paymentMethodToken = "pm_card_chargeDeclinedInsufficientFunds";
+        } else if (
+          testScenario === "expired" ||
+          cleanDigits === "4000000000000069" ||
+          cleanDigits.endsWith("0069")
+        ) {
+          paymentMethodToken = "pm_card_chargeDeclinedExpiredCard";
+        } else if (
+          testScenario === "incorrect_cvc" ||
+          cleanDigits === "4000000000000085" ||
+          cleanDigits.endsWith("0085")
+        ) {
+          paymentMethodToken = "pm_card_chargeDeclinedIncorrectCvc";
+        } else {
+          paymentMethodToken = "pm_card_visa";
+        }
+
+        const stripeParams = new URLSearchParams();
+        stripeParams.append("amount", String(amountInCents));
+        stripeParams.append("currency", "usd");
+        stripeParams.append("payment_method", paymentMethodToken);
+        stripeParams.append("confirm", "true");
+        stripeParams.append("return_url", "https://beachwoodcafe.vercel.app");
+        stripeParams.append(
+          "description",
+          `Beachwood Cafe Order ${orderNumber || "New"} - ${customerName || "Customer"}`
+        );
+        if (orderNumber) stripeParams.append("metadata[orderNumber]", String(orderNumber));
+        if (customerName) stripeParams.append("metadata[customerName]", String(customerName));
+        if (customerEmail) stripeParams.append("metadata[customerEmail]", String(customerEmail));
+        if (customerPhone) stripeParams.append("metadata[customerPhone]", String(customerPhone));
+
+        const stripeRes = await fetch("https://api.stripe.com/v1/payment_intents", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: stripeParams.toString(),
+        });
+
+        const stripeData = (await stripeRes.json()) as any;
+
+        if (!stripeRes.ok || stripeData?.error) {
+          const errObj = stripeData?.error || {};
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: errObj.message || "Card transaction was declined by Stripe.",
+              code: errObj.decline_code || errObj.code || "card_declined",
+              paymentIntentId: errObj.payment_intent?.id,
+            }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            status: stripeData.status,
+            paymentIntentId: stripeData.id,
+            chargeId: stripeData.latest_charge,
+            amount: (stripeData.amount / 100).toFixed(2),
+            currency: stripeData.currency,
+            livemode: stripeData.livemode,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: err?.message || "Internal Stripe error" }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
+  // 8. Stripe: Hosted Checkout Session Creation
+  if (
+    path === "/api/stripe/create-checkout-session" ||
+    path === "/api/stripe/create-checkout-session/"
+  ) {
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        const { orderNumber, customerName, customerEmail, grandTotal, originUrl } = body;
+
+        const secretKey =
+          process.env.STRIPE_SECRET_KEY || process.env.VITE_STRIPE_SECRET_KEY || "";
+
+        const numAmount =
+          typeof grandTotal === "number" ? grandTotal : parseFloat(String(grandTotal || 0));
+        const amountInCents = Math.max(50, Math.round(numAmount * 100));
+
+        const baseOrigin =
+          originUrl ||
+          request.headers.get("origin") ||
+          request.headers.get("referer")?.replace(/\/$/, "") ||
+          "https://beachwoodcafe.vercel.app";
+
+        const cleanBaseOrigin = baseOrigin.replace(/\/+$/, "");
+
+        const stripeParams = new URLSearchParams();
+        stripeParams.append("mode", "payment");
+        stripeParams.append(
+          "success_url",
+          `${cleanBaseOrigin}/?stripe_checkout=success&session_id={CHECKOUT_SESSION_ID}&order_id=${encodeURIComponent(
+            orderNumber || ""
+          )}`
+        );
+        stripeParams.append("cancel_url", `${cleanBaseOrigin}/?stripe_checkout=cancelled`);
+        stripeParams.append("line_items[0][price_data][currency]", "usd");
+        stripeParams.append(
+          "line_items[0][price_data][product_data][name]",
+          `Beachwood Cafe Order ${orderNumber ? `#${orderNumber}` : ""}`
+        );
+        stripeParams.append(
+          "line_items[0][price_data][product_data][description]",
+          `Hollywood Hills Fresh Dining • ${customerName || "Takeout / Delivery"}`
+        );
+        stripeParams.append("line_items[0][price_data][unit_amount]", String(amountInCents));
+        stripeParams.append("line_items[0][quantity]", "1");
+
+        if (customerEmail) {
+          stripeParams.append("customer_email", customerEmail);
+        }
+        if (orderNumber) stripeParams.append("metadata[orderNumber]", String(orderNumber));
+        if (customerName) stripeParams.append("metadata[customerName]", String(customerName));
+
+        const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: stripeParams.toString(),
+        });
+
+        const session = (await stripeRes.json()) as any;
+
+        if (!stripeRes.ok || session?.error) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: session?.error?.message || "Failed to create checkout session",
+            }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            sessionId: session.id,
+            url: session.url,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err?.message || "Error creating checkout session",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+  }
+
+  // 9. Stripe: Verify Checkout Session
+  if (path === "/api/stripe/verify-session" || path === "/api/stripe/verify-session/") {
+    if (request.method === "GET") {
+      try {
+        const sessionId = url.searchParams.get("sessionId");
+        if (!sessionId) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Missing sessionId parameter" }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        const secretKey =
+          process.env.STRIPE_SECRET_KEY || process.env.VITE_STRIPE_SECRET_KEY || "";
+
+        const stripeRes = await fetch(
+          `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${secretKey}`,
+            },
+          }
+        );
+
+        const session = (await stripeRes.json()) as any;
+
+        if (!stripeRes.ok || session?.error) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: session?.error?.message || "Session not found",
+            }),
+            { status: 404, headers: corsHeaders }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            status: session.status,
+            paymentStatus: session.payment_status,
+            paymentIntentId: session.payment_intent,
+            customerEmail: session.customer_details?.email,
+            customerName: session.customer_details?.name,
+            amountTotal: session.amount_total
+              ? (session.amount_total / 100).toFixed(2)
+              : undefined,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err: any) {
+        return new Response(JSON.stringify({ success: false, error: err?.message }), {
+          status: 500,
+          headers: corsHeaders,
+        });
+      }
+    }
+  }
+
   // Clear all data endpoint (orders, reservations, and caches)
   if (path === "/api/clear-all" || path === "/api/clear-all/") {
     if (request.method === "POST") {

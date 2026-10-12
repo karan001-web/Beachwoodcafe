@@ -44,6 +44,8 @@ export interface AdminOrder {
   orderNote?: string;
   paymentMethod: "prepay" | "counter";
   cardLast4?: string;
+  stripePaymentId?: string;
+  stripeStatus?: string;
   items: OrderItem[];
   subtotal: number;
   discountAmount: number;

@@ -3034,6 +3034,21 @@ export function AdminPage() {
                   ${selectedOrder.grandTotal.toFixed(2)}
                 </span>
               </div>
+              <div className="flex justify-between items-center text-xs pt-1.5 border-t border-[#1a3b6b]/10">
+                <span className="text-[#595347]">Payment Method</span>
+                <div className="text-right">
+                  <span className="font-bold text-[#191918]">
+                    {selectedOrder.paymentMethod === "prepay"
+                      ? `Online Card (•••• ${selectedOrder.cardLast4 || "PAID"})`
+                      : "Pay at Counter"}
+                  </span>
+                  {selectedOrder.stripePaymentId && (
+                    <span className="text-[0.62rem] text-[#16a34a] font-mono font-bold block">
+                      Stripe: {selectedOrder.stripePaymentId}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Status Change Selector in Ticket */}
@@ -3107,6 +3122,7 @@ export function AdminPage() {
                     orderNote: selectedOrder.orderNote,
                     paymentMethod: selectedOrder.paymentMethod,
                     cardLast4: selectedOrder.cardLast4,
+                    stripePaymentId: selectedOrder.stripePaymentId,
                     items: selectedOrder.items,
                     subtotal: selectedOrder.subtotal,
                     discountAmount: selectedOrder.discountAmount,

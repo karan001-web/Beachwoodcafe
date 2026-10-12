@@ -23,6 +23,7 @@ import {
   Bike,
   Store,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import { useCart, parseItemPrice } from "../lib/cart-context";
 import { site } from "../lib/site-content";
@@ -57,6 +58,8 @@ interface ConfirmedOrder {
   orderNote: string;
   paymentMethod: PaymentMethod;
   cardLast4?: string;
+  stripePaymentId?: string;
+  stripeStatus?: string;
   items: Array<{ name: string; quantity: number; unitPrice: number; total: number }>;
   subtotal: number;
   discountAmount: number;
@@ -124,6 +127,35 @@ export function CartDrawer() {
   const [errors, setErrors] = useState<CheckoutFormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [confirmedOrder, setConfirmedOrder] = useState<ConfirmedOrder | null>(null);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const [isStripeRedirecting, setIsStripeRedirecting] = useState<boolean>(false);
+
+  // Quick test card helper for Stripe sandbox
+  const handleSelectTestCard = (type: "success" | "decline" | "insufficient" | "expired") => {
+    if (type === "success") {
+      setCardNumber("4242 4242 4242 4242");
+      setCardExp("12/28");
+      setCardCvc("123");
+      setCardZip("90068");
+    } else if (type === "decline") {
+      setCardNumber("4000 0000 0000 0002");
+      setCardExp("12/28");
+      setCardCvc("123");
+      setCardZip("90068");
+    } else if (type === "insufficient") {
+      setCardNumber("4000 0000 0000 0999");
+      setCardExp("12/28");
+      setCardCvc("123");
+      setCardZip("90068");
+    } else if (type === "expired") {
+      setCardNumber("4000 0000 0000 0069");
+      setCardExp("12/28");
+      setCardCvc("123");
+      setCardZip("90068");
+    }
+    setStripeError(null);
+    setErrors((prev) => ({ ...prev, cardNumber: undefined }));
+  };
 
   // Helper to completely reset checkout form fields
   const resetCheckoutForm = () => {
@@ -149,6 +181,8 @@ export function CartDrawer() {
     setCardCvc("");
     setCardZip("");
     setErrors({});
+    setStripeError(null);
+    setIsStripeRedirecting(false);
     if (typeof window !== "undefined") {
       try {
         localStorage.removeItem("beachwood_checkout_info");
@@ -157,6 +191,66 @@ export function CartDrawer() {
       }
     }
   };
+
+  // Detect if customer completed checkout via official Stripe Hosted Checkout page
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const isStripeSuccess = urlParams.get("stripe_checkout") === "success";
+      const sessionId = urlParams.get("session_id");
+
+      if (isStripeSuccess && sessionId) {
+        const pendingRaw = localStorage.getItem("beachwood_pending_stripe_order");
+        if (pendingRaw) {
+          const pendingOrder = JSON.parse(pendingRaw) as ConfirmedOrder;
+          const finalizedOrder: ConfirmedOrder = {
+            ...pendingOrder,
+            stripePaymentId: sessionId,
+            stripeStatus: "succeeded",
+          };
+          // Persist to Admin Store
+          adminStore.addOrder({
+            orderNumber: finalizedOrder.orderId,
+            placedAt: `Today, ${finalizedOrder.placedAt}`,
+            customerName: finalizedOrder.name,
+            customerPhone: finalizedOrder.phone,
+            customerEmail: finalizedOrder.email,
+            fulfilmentType: finalizedOrder.fulfilmentType,
+            deliveryAddress: finalizedOrder.deliveryAddress,
+            deliveryApt: finalizedOrder.deliveryApt,
+            deliveryCity: finalizedOrder.deliveryCity,
+            deliveryZip: finalizedOrder.deliveryZip,
+            deliveryNotes: finalizedOrder.deliveryNotes,
+            includeUtensils: finalizedOrder.includeUtensils,
+            orderNote: finalizedOrder.orderNote,
+            paymentMethod: "prepay",
+            cardLast4: "STRIPE",
+            stripePaymentId: sessionId,
+            stripeStatus: "succeeded",
+            items: finalizedOrder.items,
+            subtotal: finalizedOrder.subtotal,
+            discountAmount: finalizedOrder.discountAmount,
+            tax: finalizedOrder.tax,
+            deliveryFee: finalizedOrder.deliveryFee,
+            tipAmount: finalizedOrder.tipAmount,
+            grandTotal: finalizedOrder.grandTotal,
+          });
+
+          setConfirmedOrder(finalizedOrder);
+          setActiveStep("confirmed");
+          setIsCartOpen(true);
+          clearCart();
+          localStorage.removeItem("beachwood_pending_stripe_order");
+
+          // Clean query string from browser URL cleanly
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+    } catch (err) {
+      console.warn("Error restoring Stripe hosted session:", err);
+    }
+  }, []);
 
   // Ensure previous checkout details are erased from localStorage for clean new sessions
   useEffect(() => {
@@ -335,7 +429,86 @@ export function CartDrawer() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handlePlaceOrder = () => {
+  const handlePayWithStripeHosted = async () => {
+    if (!validateForm()) {
+      const errorContainer = document.getElementById("checkout-form-container");
+      if (errorContainer) {
+        errorContainer.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      return;
+    }
+
+    setIsStripeRedirecting(true);
+    setStripeError(null);
+
+    const randomId = "BWC-" + Math.floor(10000 + Math.random() * 90000);
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const readyMinutes = fulfilmentType === "pickup" ? 30 : 45;
+    const readyDate = new Date(now.getTime() + readyMinutes * 60000);
+    const readyTimeStr = readyDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    const orderData: ConfirmedOrder = {
+      orderId: randomId,
+      placedAt: timeStr,
+      estimatedTime: readyTimeStr,
+      name,
+      phone,
+      email,
+      fulfilmentType,
+      deliveryAddress: deliveryStreet,
+      deliveryApt,
+      deliveryCity,
+      deliveryZip,
+      deliveryNotes: deliveryInstructions,
+      includeUtensils,
+      orderNote,
+      paymentMethod: "prepay",
+      cardLast4: "STRIPE",
+      items: items.map(({ item, quantity }) => {
+        const unitPrice = parseItemPrice(item.price);
+        return {
+          name: item.name,
+          quantity,
+          unitPrice,
+          total: unitPrice * quantity,
+        };
+      }),
+      subtotal,
+      discountAmount,
+      tax: estimatedTax,
+      deliveryFee,
+      tipAmount,
+      grandTotal,
+    };
+
+    try {
+      localStorage.setItem("beachwood_pending_stripe_order", JSON.stringify(orderData));
+      const res = await fetch("/api/stripe/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderNumber: randomId,
+          customerName: name,
+          customerEmail: email,
+          grandTotal,
+          originUrl: window.location.origin,
+        }),
+      });
+      const data = (await res.json()) as any;
+      if (res.ok && data?.url) {
+        window.location.href = data.url;
+      } else {
+        setIsStripeRedirecting(false);
+        setStripeError(data?.error || "Failed to initialize Stripe Checkout.");
+      }
+    } catch (err: any) {
+      setIsStripeRedirecting(false);
+      setStripeError(err?.message || "Network error contacting Stripe.");
+    }
+  };
+
+  const handlePlaceOrder = async () => {
     if (!validateForm()) {
       // Scroll to the first error or top of the checkout container
       const errorContainer = document.getElementById("checkout-form-container");
@@ -346,6 +519,7 @@ export function CartDrawer() {
     }
 
     setIsSubmitting(true);
+    setStripeError(null);
 
     // Clear any previous saved checkout info from localStorage
     if (typeof window !== "undefined") {
@@ -356,23 +530,104 @@ export function CartDrawer() {
       }
     }
 
-    // Simulate server order placement
-    setTimeout(() => {
-      const randomId = "BWC-" + Math.floor(10000 + Math.random() * 90000);
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const randomId = "BWC-" + Math.floor(10000 + Math.random() * 90000);
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-      const readyMinutes = fulfilmentType === "pickup" ? 30 : 45;
-      const readyDate = new Date(now.getTime() + readyMinutes * 60000);
-      const readyTimeStr = readyDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const readyMinutes = fulfilmentType === "pickup" ? 30 : 45;
+    const readyDate = new Date(now.getTime() + readyMinutes * 60000);
+    const readyTimeStr = readyDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-      const orderData: ConfirmedOrder = {
-        orderId: randomId,
-        placedAt: timeStr,
-        estimatedTime: readyTimeStr,
-        name,
-        phone,
-        email,
+    let stripePaymentId: string | undefined = undefined;
+    let stripeStatus: string | undefined = undefined;
+
+    // If PrePay is selected, execute the real Stripe Test Payment API call
+    if (paymentMethod === "prepay") {
+      try {
+        const stripeRes = await fetch("/api/stripe/process-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: grandTotal,
+            orderNumber: randomId,
+            customerName: name,
+            customerEmail: email,
+            customerPhone: phone,
+            cardNumber,
+            cardExp,
+            cardCvc,
+            cardZip,
+          }),
+        });
+
+        const stripeData = (await stripeRes.json()) as any;
+
+        if (!stripeRes.ok || !stripeData.success) {
+          setIsSubmitting(false);
+          const errorMsg =
+            stripeData?.error || "Your card was declined by Stripe. Please try a different test card.";
+          setStripeError(errorMsg);
+          setErrors((prev) => ({
+            ...prev,
+            cardNumber: errorMsg,
+          }));
+          return;
+        }
+
+        stripePaymentId = stripeData.paymentIntentId;
+        stripeStatus = stripeData.status || "succeeded";
+      } catch (err: any) {
+        setIsSubmitting(false);
+        const errorMsg = err?.message || "Failed to communicate with Stripe API.";
+        setStripeError(errorMsg);
+        return;
+      }
+    }
+
+    const orderData: ConfirmedOrder = {
+      orderId: randomId,
+      placedAt: timeStr,
+      estimatedTime: readyTimeStr,
+      name,
+      phone,
+      email,
+      fulfilmentType,
+      deliveryAddress: deliveryStreet,
+      deliveryApt,
+      deliveryCity,
+      deliveryZip,
+      deliveryNotes: deliveryInstructions,
+      includeUtensils,
+      orderNote,
+      paymentMethod,
+      cardLast4: cardNumber.replace(/[^0-9]/g, "").slice(-4) || "4242",
+      stripePaymentId,
+      stripeStatus,
+      items: items.map(({ item, quantity }) => {
+        const unitPrice = parseItemPrice(item.price);
+        return {
+          name: item.name,
+          quantity,
+          unitPrice,
+          total: unitPrice * quantity,
+        };
+      }),
+      subtotal,
+      discountAmount,
+      tax: estimatedTax,
+      deliveryFee,
+      tipAmount,
+      grandTotal,
+    };
+
+    // Persist order in Admin Store
+    try {
+      adminStore.addOrder({
+        orderNumber: randomId,
+        placedAt: `Today, ${timeStr}`,
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: email,
         fulfilmentType,
         deliveryAddress: deliveryStreet,
         deliveryApt,
@@ -383,60 +638,26 @@ export function CartDrawer() {
         orderNote,
         paymentMethod,
         cardLast4: cardNumber.replace(/[^0-9]/g, "").slice(-4) || "4242",
-        items: items.map(({ item, quantity }) => {
-          const unitPrice = parseItemPrice(item.price);
-          return {
-            name: item.name,
-            quantity,
-            unitPrice,
-            total: unitPrice * quantity,
-          };
-        }),
+        stripePaymentId,
+        stripeStatus,
+        items: orderData.items,
         subtotal,
         discountAmount,
         tax: estimatedTax,
         deliveryFee,
         tipAmount,
         grandTotal,
-      };
+      });
+    } catch (err) {
+      console.error("Failed to record order in admin store:", err);
+    }
 
-      // Persist order in Admin Store
-      try {
-        adminStore.addOrder({
-          orderNumber: randomId,
-          placedAt: `Today, ${timeStr}`,
-          customerName: name,
-          customerPhone: phone,
-          customerEmail: email,
-          fulfilmentType,
-          deliveryAddress: deliveryStreet,
-          deliveryApt,
-          deliveryCity,
-          deliveryZip,
-          deliveryNotes: deliveryInstructions,
-          includeUtensils,
-          orderNote,
-          paymentMethod,
-          cardLast4: cardNumber.replace(/[^0-9]/g, "").slice(-4) || "4242",
-          items: orderData.items,
-          subtotal,
-          discountAmount,
-          tax: estimatedTax,
-          deliveryFee,
-          tipAmount,
-          grandTotal,
-        });
-      } catch (err) {
-        console.error("Failed to record order in admin store:", err);
-      }
-
-      setConfirmedOrder(orderData);
-      setIsSubmitting(false);
-      setActiveStep("confirmed");
-      // Clear cart items and erase form inputs so any subsequent order starts completely fresh
-      clearCart();
-      resetCheckoutForm();
-    }, 900);
+    setConfirmedOrder(orderData);
+    setIsSubmitting(false);
+    setActiveStep("confirmed");
+    // Clear cart items and erase form inputs so any subsequent order starts completely fresh
+    clearCart();
+    resetCheckoutForm();
   };
 
   const handleFinishAndClear = () => {
@@ -1218,43 +1439,101 @@ export function CartDrawer() {
 
                     {/* Credit Card Input Section (when PrePay is active) */}
                     {paymentMethod === "prepay" ? (
-                      <div className="space-y-2.5 pt-2 border-t border-[#1a3b6b]/10">
-                        <label className="block text-xs font-bold text-[#191918]">
-                          Credit Card: <span className="text-[#d32f2f]">*</span>
-                        </label>
-
-                        {/* Card Number Container with Autofill button (Exact match to screenshot) */}
-                        <div
-                          className={`flex items-center rounded-md bg-white border ${
-                            errors.cardNumber
-                              ? "border-[#ef4444] ring-1 ring-[#ef4444]"
-                              : "border-[#c9bba6]"
-                          } px-3 py-1.5 shadow-2xs`}
-                        >
-                          <CreditCard className="size-4 text-[#767064] mr-2 shrink-0" />
-                          <input
-                            type="text"
-                            value={cardNumber}
-                            onChange={(e) => {
-                              setCardNumber(e.target.value);
-                              if (errors.cardNumber)
-                                setErrors((prev) => ({ ...prev, cardNumber: "" }));
-                            }}
-                            placeholder="Card number"
-                            className="flex-1 text-xs text-[#191918] focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleAutofill}
-                            className="px-2 py-0.5 text-[0.65rem] font-bold rounded bg-[#16a34a] text-white hover:bg-[#15803d] flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <span>Autofill</span>
-                            <ChevronRight className="size-3" />
-                          </button>
+                      <div className="space-y-3 pt-2 border-t border-[#1a3b6b]/10">
+                        {/* Live Stripe Test Mode Banner */}
+                        <div className="p-2.5 rounded-lg bg-[#f0fdf4] border border-[#86efac] flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <div className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#16a34a] opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#16a34a]"></span>
+                            </div>
+                            <div>
+                              <span className="font-bold text-[#15803d]">Stripe Test Mode Active</span>
+                              <span className="text-[0.68rem] text-[#166534] block">
+                                Real charges log in your Stripe Dashboard (No real money used)
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[0.62rem] font-mono px-1.5 py-0.5 rounded bg-white text-[#15803d] border border-[#bbf7d0]">
+                            USD Sandbox
+                          </span>
                         </div>
-                        {errors.cardNumber && (
-                          <p className="text-[0.68rem] text-[#ef4444]">{errors.cardNumber}</p>
-                        )}
+
+                        {/* One-Click Test Card Quick Selectors */}
+                        <div className="space-y-1.5">
+                          <span className="text-[0.68rem] font-bold text-[#595347] uppercase tracking-wider block">
+                            Quick Test Cards (Click to Autofill):
+                          </span>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleSelectTestCard("success")}
+                              className="p-1.5 rounded-md text-[0.68rem] font-bold bg-[#16a34a]/10 hover:bg-[#16a34a]/20 text-[#15803d] border border-[#16a34a]/30 transition-all text-center cursor-pointer"
+                            >
+                              ✅ 4242 (Success)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectTestCard("decline")}
+                              className="p-1.5 rounded-md text-[0.68rem] font-bold bg-[#ef4444]/10 hover:bg-[#ef4444]/20 text-[#b91c1c] border border-[#ef4444]/30 transition-all text-center cursor-pointer"
+                            >
+                              ❌ 0002 (Decline)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectTestCard("insufficient")}
+                              className="p-1.5 rounded-md text-[0.68rem] font-bold bg-[#f59e0b]/10 hover:bg-[#f59e0b]/20 text-[#b45309] border border-[#f59e0b]/30 transition-all text-center cursor-pointer"
+                            >
+                              ⚠️ 0999 (No Funds)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectTestCard("expired")}
+                              className="p-1.5 rounded-md text-[0.68rem] font-bold bg-[#6b7280]/10 hover:bg-[#6b7280]/20 text-[#374151] border border-[#6b7280]/30 transition-all text-center cursor-pointer"
+                            >
+                              📅 0069 (Expired)
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Card Number Container with Autofill button */}
+                        <div>
+                          <label className="block text-xs font-bold text-[#191918] mb-1">
+                            Credit Card: <span className="text-[#d32f2f]">*</span>
+                          </label>
+                          <div
+                            className={`flex items-center rounded-md bg-white border ${
+                              errors.cardNumber
+                                ? "border-[#ef4444] ring-1 ring-[#ef4444]"
+                                : "border-[#c9bba6]"
+                            } px-3 py-1.5 shadow-2xs`}
+                          >
+                            <CreditCard className="size-4 text-[#767064] mr-2 shrink-0" />
+                            <input
+                              type="text"
+                              value={cardNumber}
+                              onChange={(e) => {
+                                setCardNumber(e.target.value);
+                                if (errors.cardNumber)
+                                  setErrors((prev) => ({ ...prev, cardNumber: "" }));
+                                if (stripeError) setStripeError(null);
+                              }}
+                              placeholder="Card number"
+                              className="flex-1 text-xs text-[#191918] focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSelectTestCard("success")}
+                              className="px-2 py-0.5 text-[0.65rem] font-bold rounded bg-[#16a34a] text-white hover:bg-[#15803d] flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <span>Autofill</span>
+                              <ChevronRight className="size-3" />
+                            </button>
+                          </div>
+                          {errors.cardNumber && (
+                            <p className="text-[0.68rem] text-[#ef4444] mt-1">{errors.cardNumber}</p>
+                          )}
+                        </div>
 
                         {/* Expiry / CVC / Zip inputs */}
                         <div className="grid grid-cols-3 gap-2">
@@ -1281,12 +1560,39 @@ export function CartDrawer() {
                           />
                         </div>
 
+                        {/* Live Stripe Gateway Error notice */}
+                        {stripeError && (
+                          <div className="p-2.5 rounded-lg bg-[#fee2e2] border border-[#ef4444] text-xs text-[#b91c1c] flex items-start gap-2">
+                            <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#ef4444]" />
+                            <div>
+                              <span className="font-bold">Stripe Gateway Response:</span> {stripeError}
+                            </div>
+                          </div>
+                        )}
+
                         {/* Stripe Security Label */}
                         <div className="text-center pt-1">
                           <p className="text-[0.7rem] text-[#767064] flex items-center justify-center gap-1">
                             <Lock className="size-3 text-[#16a34a]" />
-                            <span>securely processed by stripe</span>
+                            <span>securely processed by stripe (live test mode)</span>
                           </p>
+                        </div>
+
+                        {/* Alternative: Pay with official Stripe Hosted Checkout */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            disabled={isStripeRedirecting}
+                            onClick={handlePayWithStripeHosted}
+                            className="w-full py-2 px-3 rounded-lg bg-[#635BFF]/10 hover:bg-[#635BFF]/15 text-[#635BFF] border border-[#635BFF]/30 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                          >
+                            <ExternalLink className="size-3.5" />
+                            <span>
+                              {isStripeRedirecting
+                                ? "Redirecting to Stripe Hosted Checkout..."
+                                : "Or Pay via Official Stripe Hosted Checkout Page"}
+                            </span>
+                          </button>
                         </div>
                       </div>
                     ) : (
@@ -1379,7 +1685,9 @@ export function CartDrawer() {
                       <div className="flex items-center gap-2 py-1">
                         <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         <span className="text-xs font-bold uppercase tracking-wider">
-                          Placing your Order...
+                          {paymentMethod === "prepay"
+                            ? "Processing via Stripe Gateway..."
+                            : "Placing your Order..."}
                         </span>
                       </div>
                     ) : (
@@ -1422,6 +1730,17 @@ export function CartDrawer() {
                     Your order <strong className="text-[#191918]">#{confirmedOrder.orderId}</strong>{" "}
                     has been received and sent directly to our kitchen staff.
                   </p>
+                  {confirmedOrder.stripePaymentId && (
+                    <div className="pt-2 flex flex-col items-center">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[0.68rem] font-bold bg-[#16a34a]/10 text-[#15803d] border border-[#16a34a]/25">
+                        <ShieldCheck className="size-3.5 text-[#16a34a]" />
+                        <span>Stripe Test Payment Succeeded</span>
+                      </span>
+                      <span className="text-[0.62rem] text-[#767064] font-mono mt-1">
+                        Ref: {confirmedOrder.stripePaymentId}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Progress Status Bar */}
@@ -1503,12 +1822,19 @@ export function CartDrawer() {
                 <div className="p-4 rounded-xl bg-white/90 border border-[#c9bba6] space-y-3 text-xs">
                   <div className="flex items-center justify-between pb-2 border-b border-[#1a3b6b]/10">
                     <span className="font-bold text-[#191918]">Itemized Receipt</span>
-                    <span className="text-[0.7rem] text-[#767064]">
-                      Paid via:{" "}
-                      {confirmedOrder.paymentMethod === "prepay"
-                        ? `Card (•••• ${confirmedOrder.cardLast4})`
-                        : "Pay at counter"}
-                    </span>
+                    <div className="text-right">
+                      <span className="text-[0.7rem] text-[#767064] block">
+                        Paid via:{" "}
+                        {confirmedOrder.paymentMethod === "prepay"
+                          ? `Card (•••• ${confirmedOrder.cardLast4})`
+                          : "Pay at counter"}
+                      </span>
+                      {confirmedOrder.stripePaymentId && (
+                        <span className="text-[0.62rem] text-[#16a34a] font-mono font-bold block">
+                          Stripe: {confirmedOrder.stripePaymentId}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">

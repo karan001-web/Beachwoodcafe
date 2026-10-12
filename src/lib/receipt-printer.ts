@@ -17,6 +17,7 @@ export interface PrintableReceiptOrder {
   orderNote?: string | undefined;
   paymentMethod?: "prepay" | "counter" | undefined;
   cardLast4?: string | undefined;
+  stripePaymentId?: string | undefined;
   items: Array<{
     name: string;
     quantity: number;
@@ -398,7 +399,7 @@ function buildReceiptHtml(order: PrintableReceiptOrder): string {
       </div>
       <div class="totals-row" style="font-size: 10px; color: #666;">
         <span>Payment Method</span>
-        <span>${order.paymentMethod === "prepay" ? `Card (•••• ${order.cardLast4 || "PAID"})` : "Pay at counter"}</span>
+        <span>${order.paymentMethod === "prepay" ? `Card (•••• ${order.cardLast4 || "PAID"})${order.stripePaymentId ? ` · Stripe: ${order.stripePaymentId}` : ""}` : "Pay at counter"}</span>
       </div>
     </div>
 

@@ -1135,12 +1135,19 @@ export function OrderTrackerView({
                 </div>
 
                 <div className="pt-2 border-t border-[#1a3b6b]/10 flex justify-between items-baseline">
-                  <span className="text-[0.7rem] text-[#767064]">
-                    Paid via:{" "}
-                    {selectedOrder.paymentMethod === "prepay"
-                      ? `Card (•••• ${selectedOrder.cardLast4 || "4242"})`
-                      : "Counter"}
-                  </span>
+                  <div>
+                    <span className="text-[0.7rem] text-[#767064] block">
+                      Paid via:{" "}
+                      {selectedOrder.paymentMethod === "prepay"
+                        ? `Card (•••• ${selectedOrder.cardLast4 || "4242"})`
+                        : "Counter"}
+                    </span>
+                    {selectedOrder.stripePaymentId && (
+                      <span className="text-[0.62rem] text-[#16a34a] font-mono font-bold block">
+                        Stripe: {selectedOrder.stripePaymentId}
+                      </span>
+                    )}
+                  </div>
                   <span className="font-display text-base font-bold text-[#1a3b6b]">
                     Total: ${formatPrice(selectedOrder.grandTotal)}
                   </span>
@@ -1191,6 +1198,7 @@ export function OrderTrackerView({
                   orderNote: selectedOrder.orderNote,
                   paymentMethod: selectedOrder.paymentMethod,
                   cardLast4: selectedOrder.cardLast4,
+                  stripePaymentId: selectedOrder.stripePaymentId,
                   items: Array.isArray(selectedOrder.items) ? selectedOrder.items : [],
                   subtotal: Number(selectedOrder.subtotal) || 0,
                   discountAmount: Number(selectedOrder.discountAmount) || 0,
