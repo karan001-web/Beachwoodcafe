@@ -462,6 +462,39 @@ export const adminStore = {
 
   addOrder(orderInput: Omit<AdminOrder, "id" | "timestamp" | "status">): AdminOrder {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+
+    // Prevent duplicate orders for the same orderNumber or Stripe payment ID
+    const cleanNum = orderInput.orderNumber
+      ? String(orderInput.orderNumber).replace(/^#/, "").trim().toLowerCase()
+      : "";
+    const cleanStripeId = orderInput.stripePaymentId
+      ? String(orderInput.stripePaymentId).trim()
+      : "";
+
+    const existingIdx = orders.findIndex((o) => {
+      if (!o) return false;
+      const oNum = (o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+      if (cleanNum && oNum === cleanNum) return true;
+      if (cleanStripeId && o.stripePaymentId && o.stripePaymentId === cleanStripeId) return true;
+      return false;
+    });
+
+    if (existingIdx !== -1) {
+      const existing = orders[existingIdx];
+      // Update stripe payment details on existing order if provided
+      if (cleanStripeId && (!existing.stripePaymentId || existing.stripePaymentId !== cleanStripeId)) {
+        existing.stripePaymentId = cleanStripeId;
+        if (orderInput.stripeStatus) existing.stripeStatus = orderInput.stripeStatus;
+        safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+        if (isSupabaseConfigured()) {
+          upsertOrderToSupabase(existing).catch((err) =>
+            console.warn("Background Supabase order update:", err),
+          );
+        }
+      }
+      return existing;
+    }
+
     const newOrder: AdminOrder = {
       ...orderInput,
       id: "ord_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),

@@ -195,61 +195,92 @@ export function CartDrawer() {
   // Detect if customer completed checkout via official Stripe Hosted Checkout page
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const isStripeSuccess = urlParams.get("stripe_checkout") === "success";
-      const sessionId = urlParams.get("session_id");
+    const verifyStripeReturn = async () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const stripeStatusParam = urlParams.get("stripe_checkout");
+        const sessionId = urlParams.get("session_id");
 
-      if (isStripeSuccess && sessionId) {
-        const pendingRaw = localStorage.getItem("beachwood_pending_stripe_order");
-        if (pendingRaw) {
-          const pendingOrder = JSON.parse(pendingRaw) as ConfirmedOrder;
-          const finalizedOrder: ConfirmedOrder = {
-            ...pendingOrder,
-            stripePaymentId: sessionId,
-            stripeStatus: "succeeded",
-          };
-          // Persist to Admin Store
-          adminStore.addOrder({
-            orderNumber: finalizedOrder.orderId,
-            placedAt: `Today, ${finalizedOrder.placedAt}`,
-            customerName: finalizedOrder.name,
-            customerPhone: finalizedOrder.phone,
-            customerEmail: finalizedOrder.email,
-            fulfilmentType: finalizedOrder.fulfilmentType,
-            deliveryAddress: finalizedOrder.deliveryAddress,
-            deliveryApt: finalizedOrder.deliveryApt,
-            deliveryCity: finalizedOrder.deliveryCity,
-            deliveryZip: finalizedOrder.deliveryZip,
-            deliveryNotes: finalizedOrder.deliveryNotes,
-            includeUtensils: finalizedOrder.includeUtensils,
-            orderNote: finalizedOrder.orderNote,
-            paymentMethod: "prepay",
-            cardLast4: "STRIPE",
-            stripePaymentId: sessionId,
-            stripeStatus: "succeeded",
-            items: finalizedOrder.items,
-            subtotal: finalizedOrder.subtotal,
-            discountAmount: finalizedOrder.discountAmount,
-            tax: finalizedOrder.tax,
-            deliveryFee: finalizedOrder.deliveryFee,
-            tipAmount: finalizedOrder.tipAmount,
-            grandTotal: finalizedOrder.grandTotal,
-          });
-
-          setConfirmedOrder(finalizedOrder);
-          setActiveStep("confirmed");
-          setIsCartOpen(true);
-          clearCart();
-          localStorage.removeItem("beachwood_pending_stripe_order");
-
-          // Clean query string from browser URL cleanly
+        if (stripeStatusParam === "cancelled") {
           window.history.replaceState({}, document.title, window.location.pathname);
+          setStripeError("Stripe checkout was cancelled. No charge was made.");
+          return;
         }
+
+        if (stripeStatusParam === "success" && sessionId) {
+          const pendingRaw = localStorage.getItem("beachwood_pending_stripe_order");
+          if (pendingRaw) {
+            // Verify session with backend before marking order as paid
+            let isVerifiedPaid = true;
+            try {
+              const verifyRes = await fetch(
+                `/api/stripe/verify-session?sessionId=${encodeURIComponent(sessionId)}`,
+              );
+              const verifyData = (await verifyRes.json()) as any;
+              if (
+                !verifyRes.ok ||
+                (verifyData.paymentStatus !== "paid" && verifyData.status !== "complete")
+              ) {
+                isVerifiedPaid = false;
+                setStripeError(
+                  verifyData?.error || "Stripe payment was not completed. Please try again.",
+                );
+              }
+            } catch (vErr) {
+              console.warn("Could not verify Stripe session with backend:", vErr);
+            }
+
+            if (isVerifiedPaid) {
+              const pendingOrder = JSON.parse(pendingRaw) as ConfirmedOrder;
+              const finalizedOrder: ConfirmedOrder = {
+                ...pendingOrder,
+                stripePaymentId: sessionId,
+                stripeStatus: "succeeded",
+              };
+              // Persist to Admin Store (deduplication protected)
+              adminStore.addOrder({
+                orderNumber: finalizedOrder.orderId,
+                placedAt: `Today, ${finalizedOrder.placedAt}`,
+                customerName: finalizedOrder.name,
+                customerPhone: finalizedOrder.phone,
+                customerEmail: finalizedOrder.email,
+                fulfilmentType: finalizedOrder.fulfilmentType,
+                deliveryAddress: finalizedOrder.deliveryAddress,
+                deliveryApt: finalizedOrder.deliveryApt,
+                deliveryCity: finalizedOrder.deliveryCity,
+                deliveryZip: finalizedOrder.deliveryZip,
+                deliveryNotes: finalizedOrder.deliveryNotes,
+                includeUtensils: finalizedOrder.includeUtensils,
+                orderNote: finalizedOrder.orderNote,
+                paymentMethod: "prepay",
+                cardLast4: "STRIPE",
+                stripePaymentId: sessionId,
+                stripeStatus: "succeeded",
+                items: finalizedOrder.items,
+                subtotal: finalizedOrder.subtotal,
+                discountAmount: finalizedOrder.discountAmount,
+                tax: finalizedOrder.tax,
+                deliveryFee: finalizedOrder.deliveryFee,
+                tipAmount: finalizedOrder.tipAmount,
+                grandTotal: finalizedOrder.grandTotal,
+              });
+
+              setConfirmedOrder(finalizedOrder);
+              setActiveStep("confirmed");
+              setIsCartOpen(true);
+              clearCart();
+              localStorage.removeItem("beachwood_pending_stripe_order");
+            }
+
+            // Clean query string from browser URL cleanly
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        }
+      } catch (err) {
+        console.warn("Error restoring Stripe hosted session:", err);
       }
-    } catch (err) {
-      console.warn("Error restoring Stripe hosted session:", err);
-    }
+    };
+    verifyStripeReturn();
   }, []);
 
   // Ensure previous checkout details are erased from localStorage for clean new sessions
