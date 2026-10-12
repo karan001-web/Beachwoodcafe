@@ -79,6 +79,331 @@ const corsHeaders: Record<string, string> = {
   "cache-control": "no-store, no-cache, must-revalidate",
 };
 
+const SUPABASE_URL =
+  (typeof process !== "undefined" && (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)) ||
+  "https://pzsdtlnbetfvrzfkphep.supabase.co";
+
+const SUPABASE_ANON_KEY =
+  (typeof process !== "undefined" && (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY)) ||
+  "sb_publishable_uscZ4Khg7Arye1PKQvpCBg_BP4J0Fgl";
+
+// Server-side persistent database syncing with Supabase (guarantees cross-device permanence)
+async function syncOrderToSupabaseServer(ord: StoredOrder) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    const row = {
+      id: String(ord.id || `ord_${Date.now()}`),
+      order_number: String(ord.orderNumber || ""),
+      placed_at: String(ord.placedAt || ""),
+      timestamp: Number(ord.timestamp) || Date.now(),
+      customer_name: String(ord.customerName || ""),
+      customer_phone: String(ord.customerPhone || ""),
+      customer_email: String(ord.customerEmail || ""),
+      fulfilment_type: String(ord.fulfilmentType || "pickup"),
+      delivery_address: String(ord.deliveryAddress || ""),
+      delivery_apt: String(ord.deliveryApt || ""),
+      delivery_city: String(ord.deliveryCity || ""),
+      delivery_zip: String(ord.deliveryZip || ""),
+      delivery_notes: String(ord.deliveryNotes || ""),
+      include_utensils: Boolean(ord.includeUtensils),
+      order_note: String(ord.orderNote || ""),
+      payment_method: String(ord.paymentMethod || "counter"),
+      card_last4: String(ord.cardLast4 || ""),
+      items: Array.isArray(ord.items) ? ord.items : [],
+      subtotal: Number(ord.subtotal) || 0,
+      discount_amount: Number(ord.discountAmount) || 0,
+      tax: Number(ord.tax) || 0,
+      delivery_fee: Number(ord.deliveryFee) || 0,
+      tip_amount: Number(ord.tipAmount) || 0,
+      grand_total: Number(ord.grandTotal) || 0,
+      status: String(ord.status || "pending"),
+      status_updated_at: Number(ord.statusUpdatedAt || ord.timestamp || Date.now()),
+      cancelled_by: ord.cancelledBy || null,
+      cancelled_at: ord.cancelledAt || null,
+      cancellation_reason: ord.cancellationReason || null,
+    };
+
+    await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(row),
+    });
+  } catch (err) {
+    console.warn("Server Supabase order sync failed:", err);
+  }
+}
+
+async function updateOrderStatusInSupabaseServer(
+  identifier: string,
+  status: string,
+  extra?: {
+    orderId?: string;
+    orderNumber?: string;
+    statusUpdatedAt?: number;
+    cancelledBy?: string;
+    cancelledAt?: number;
+    cancellationReason?: string;
+  },
+) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    const patchPayload: Record<string, any> = {
+      status,
+      status_updated_at: extra?.statusUpdatedAt || Date.now(),
+    };
+    if (extra?.cancelledBy !== undefined) patchPayload.cancelled_by = extra.cancelledBy;
+    if (extra?.cancelledAt !== undefined) patchPayload.cancelled_at = extra.cancelledAt;
+    if (extra?.cancellationReason !== undefined) patchPayload.cancellation_reason = extra.cancellationReason;
+
+    const terms = new Set<string>();
+    const addTerm = (v?: string) => {
+      if (!v) return;
+      const raw = String(v).trim();
+      if (!raw) return;
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    };
+    addTerm(identifier);
+    addTerm(extra?.orderId);
+    addTerm(extra?.orderNumber);
+
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `order_number.eq.${t}`);
+    }
+    if (filterParts.length === 0) return;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/orders?or=(${encodeURIComponent(filterParts.join(","))})`, {
+      method: "PATCH",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(patchPayload),
+    });
+  } catch (err) {
+    console.warn("Server Supabase order status update failed:", err);
+  }
+}
+
+async function deleteOrderInSupabaseServer(identifier: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    const terms = new Set<string>();
+    const raw = String(identifier).trim();
+    if (raw) {
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    }
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `order_number.eq.${t}`);
+    }
+    if (filterParts.length === 0) return;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/orders?or=(${encodeURIComponent(filterParts.join(","))})`, {
+      method: "DELETE",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    });
+  } catch (err) {
+    console.warn("Server Supabase order delete failed:", err);
+  }
+}
+
+async function fetchOrdersFromSupabaseServer(): Promise<StoredOrder[]> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/orders?select=*&order=timestamp.desc&limit=100`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as any[];
+    return (data || []).map((r) => ({
+      id: String(r.id || ""),
+      orderNumber: String(r.order_number || ""),
+      placedAt: String(r.placed_at || ""),
+      timestamp: Number(r.timestamp) || Date.now(),
+      customerName: String(r.customer_name || ""),
+      customerPhone: String(r.customer_phone || ""),
+      customerEmail: String(r.customer_email || ""),
+      fulfilmentType: (r.fulfilment_type || "pickup") as "pickup" | "delivery",
+      deliveryAddress: r.delivery_address || undefined,
+      deliveryApt: r.delivery_apt || undefined,
+      deliveryCity: r.delivery_city || undefined,
+      deliveryZip: r.delivery_zip || undefined,
+      deliveryNotes: r.delivery_notes || undefined,
+      includeUtensils: Boolean(r.include_utensils),
+      orderNote: r.order_note || undefined,
+      paymentMethod: (r.payment_method || "counter") as "prepay" | "counter",
+      cardLast4: r.card_last4 || undefined,
+      items: Array.isArray(r.items) ? r.items : [],
+      subtotal: Number(r.subtotal) || 0,
+      discountAmount: Number(r.discount_amount) || 0,
+      tax: Number(r.tax) || 0,
+      deliveryFee: Number(r.delivery_fee) || 0,
+      tipAmount: Number(r.tip_amount) || 0,
+      grandTotal: Number(r.grand_total) || 0,
+      status: r.status || "pending",
+      statusUpdatedAt: Number(r.status_updated_at) || Number(r.timestamp) || Date.now(),
+      cancelledBy: r.cancelled_by || undefined,
+      cancelledAt: r.cancelled_at ? Number(r.cancelled_at) : undefined,
+      cancellationReason: r.cancellation_reason || undefined,
+    }));
+  } catch (err) {
+    console.warn("Server Supabase orders fetch error:", err);
+    return [];
+  }
+}
+
+async function syncReservationToSupabaseServer(res: StoredReservation) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    const row = {
+      id: String(res.id || `res_${Date.now()}`),
+      reservation_number: String(res.reservationNumber || ""),
+      created_at_str: String(res.createdAt || ""),
+      timestamp: Number(res.timestamp) || Date.now(),
+      full_name: String(res.fullName || ""),
+      phone: String(res.phone || ""),
+      email: String(res.email || ""),
+      party_size: String(res.partySize || ""),
+      date: String(res.date || ""),
+      time: String(res.time || ""),
+      seating: String(res.seating || ""),
+      special_requests: String(res.specialRequests || ""),
+      status: String(res.status || "confirmed"),
+    };
+    await fetch(`${SUPABASE_URL}/rest/v1/reservations`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(row),
+    });
+  } catch (err) {
+    console.warn("Server Supabase reservation sync failed:", err);
+  }
+}
+
+async function updateReservationStatusInSupabaseServer(identifier: string, status: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    const terms = new Set<string>();
+    const raw = String(identifier).trim();
+    if (raw) {
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    }
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `reservation_number.eq.${t}`);
+    }
+    if (filterParts.length === 0) return;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/reservations?or=(${encodeURIComponent(filterParts.join(","))})`, {
+      method: "PATCH",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status }),
+    });
+  } catch (err) {
+    console.warn("Server Supabase reservation status update failed:", err);
+  }
+}
+
+async function deleteReservationInSupabaseServer(identifier: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    const terms = new Set<string>();
+    const raw = String(identifier).trim();
+    if (raw) {
+      terms.add(raw);
+      const clean = raw.replace(/^#/, "").trim();
+      if (clean) {
+        terms.add(clean);
+        terms.add(`#${clean}`);
+      }
+    }
+    const filterParts: string[] = [];
+    for (const t of terms) {
+      filterParts.push(`id.eq.${t}`, `reservation_number.eq.${t}`);
+    }
+    if (filterParts.length === 0) return;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/reservations?or=(${encodeURIComponent(filterParts.join(","))})`, {
+      method: "DELETE",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    });
+  } catch (err) {
+    console.warn("Server Supabase reservation delete failed:", err);
+  }
+}
+
+async function fetchReservationsFromSupabaseServer(): Promise<StoredReservation[]> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/reservations?select=*&order=timestamp.desc&limit=100`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as any[];
+    return (data || []).map((r) => ({
+      id: String(r.id || ""),
+      reservationNumber: String(r.reservation_number || ""),
+      createdAt: String(r.created_at_str || ""),
+      timestamp: Number(r.timestamp) || Date.now(),
+      fullName: String(r.full_name || ""),
+      phone: String(r.phone || ""),
+      email: String(r.email || ""),
+      partySize: String(r.party_size || ""),
+      date: String(r.date || ""),
+      time: String(r.time || ""),
+      seating: String(r.seating || ""),
+      specialRequests: r.special_requests || undefined,
+      status: r.status || "confirmed",
+    }));
+  } catch (err) {
+    console.warn("Server Supabase reservations fetch error:", err);
+    return [];
+  }
+}
+
 async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -89,6 +414,14 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   // 1. Sync endpoint: returns all orders and reservations
   if (path === "/api/sync" || path === "/api/sync/") {
     if (request.method === "GET") {
+      if (serverOrders.length === 0) {
+        const remote = await fetchOrdersFromSupabaseServer();
+        if (remote.length > 0) serverOrders = remote;
+      }
+      if (serverReservations.length === 0) {
+        const remoteRes = await fetchReservationsFromSupabaseServer();
+        if (remoteRes.length > 0) serverReservations = remoteRes;
+      }
       const activeOrders = serverOrders.filter((o) => {
         if (!o) return false;
         const oNum = o.orderNumber
@@ -194,8 +527,10 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
               cancelledAt: ord.cancelledAt || existing.cancelledAt,
               cancellationReason: ord.cancellationReason || existing.cancellationReason,
             };
+            syncOrderToSupabaseServer(serverOrders[idx]!).catch(() => {});
           } else {
             serverOrders.unshift(ord);
+            syncOrderToSupabaseServer(ord).catch(() => {});
           }
         }
 
@@ -257,6 +592,15 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             ord["cancelledAt"] = Date.now();
             ord["cancellationReason"] = cancellationReason;
           }
+          updateOrderStatusInSupabaseServer(cleanId || cleanNum, status, {
+            orderId: cleanId,
+            orderNumber: cleanNum,
+            statusUpdatedAt: ord["statusUpdatedAt"],
+            cancelledBy: ord["cancelledBy"],
+            cancelledAt: ord["cancelledAt"],
+            cancellationReason: ord["cancellationReason"],
+          }).catch(() => {});
+
           return new Response(JSON.stringify({ success: true, order: ord }), {
             status: 200,
             headers: corsHeaders,
@@ -275,6 +619,15 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           cancellationReason,
         };
         serverOrders.unshift(newOrd);
+        updateOrderStatusInSupabaseServer(cleanId || cleanNum, status, {
+          orderId: cleanId,
+          orderNumber: cleanNum,
+          statusUpdatedAt: newOrd.statusUpdatedAt,
+          cancelledBy: newOrd.cancelledBy,
+          cancelledAt: newOrd.cancelledAt,
+          cancellationReason: newOrd.cancellationReason,
+        }).catch(() => {});
+
         return new Response(JSON.stringify({ success: true, order: newOrd, created: true }), {
           status: 200,
           headers: corsHeaders,
@@ -303,6 +656,8 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
         if (cleanId) serverDeletedOrderIds.add(cleanId);
         if (cleanNum) serverDeletedOrderIds.add(cleanNum);
+
+        deleteOrderInSupabaseServer(cleanId || cleanNum).catch(() => {});
 
         const prevCount = serverOrders.length;
         serverOrders = serverOrders.filter((o) => {
@@ -390,8 +745,10 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
                 ? existing.status
                 : res.status || existing.status,
             };
+            syncReservationToSupabaseServer(serverReservations[idx]!).catch(() => {});
           } else {
             serverReservations.unshift(res);
+            syncReservationToSupabaseServer(res).catch(() => {});
           }
         }
 
@@ -443,6 +800,8 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
         if (idx !== -1 && serverReservations[idx]) {
           const res = serverReservations[idx]!;
           res["status"] = status;
+          updateReservationStatusInSupabaseServer(cleanId || cleanNum, status).catch(() => {});
+
           return new Response(JSON.stringify({ success: true, reservation: res }), {
             status: 200,
             headers: corsHeaders,
@@ -476,6 +835,8 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
         if (cleanId) serverDeletedResIds.add(cleanId);
         if (cleanNum) serverDeletedResIds.add(cleanNum);
+
+        deleteReservationInSupabaseServer(cleanId || cleanNum).catch(() => {});
 
         const prevCount = serverReservations.length;
         serverReservations = serverReservations.filter((r) => {

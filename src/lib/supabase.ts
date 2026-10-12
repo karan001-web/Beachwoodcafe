@@ -303,18 +303,25 @@ export async function fetchSingleOrderFromSupabase(query: string): Promise<Admin
 
 export async function upsertOrderToSupabase(order: AdminOrder): Promise<boolean> {
   if (!supabase) return false;
-  try {
-    const row = orderToRow(order);
-    const { error } = await supabase.from("orders").upsert(row, { onConflict: "id" });
-    if (error) {
-      console.warn("Supabase save order error:", error.message);
-      return false;
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const row = orderToRow(order);
+      const { error } = await supabase.from("orders").upsert(row, { onConflict: "id" });
+      if (error) {
+        console.warn(`Supabase save order attempt ${attempt} error:`, error.message);
+        if (attempt === maxRetries) return false;
+        await new Promise((r) => setTimeout(r, attempt * 400));
+        continue;
+      }
+      return true;
+    } catch (err) {
+      console.warn(`Supabase save order attempt ${attempt} failed:`, err);
+      if (attempt === maxRetries) return false;
+      await new Promise((r) => setTimeout(r, attempt * 400));
     }
-    return true;
-  } catch (err) {
-    console.warn("Supabase save order failed:", err);
-    return false;
   }
+  return false;
 }
 
 export async function updateOrderStatusInSupabase(
@@ -447,18 +454,25 @@ export async function fetchReservationsFromSupabase(): Promise<AdminReservation[
 
 export async function upsertReservationToSupabase(res: AdminReservation): Promise<boolean> {
   if (!supabase) return false;
-  try {
-    const row = reservationToRow(res);
-    const { error } = await supabase.from("reservations").upsert(row, { onConflict: "id" });
-    if (error) {
-      console.warn("Supabase save reservation error:", error.message);
-      return false;
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const row = reservationToRow(res);
+      const { error } = await supabase.from("reservations").upsert(row, { onConflict: "id" });
+      if (error) {
+        console.warn(`Supabase save reservation attempt ${attempt} error:`, error.message);
+        if (attempt === maxRetries) return false;
+        await new Promise((r) => setTimeout(r, attempt * 400));
+        continue;
+      }
+      return true;
+    } catch (err) {
+      console.warn(`Supabase save reservation attempt ${attempt} failed:`, err);
+      if (attempt === maxRetries) return false;
+      await new Promise((r) => setTimeout(r, attempt * 400));
     }
-    return true;
-  } catch (err) {
-    console.warn("Supabase save reservation failed:", err);
-    return false;
   }
+  return false;
 }
 
 export async function updateReservationStatusInSupabase(
