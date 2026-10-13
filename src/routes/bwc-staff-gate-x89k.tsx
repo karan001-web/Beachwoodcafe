@@ -276,6 +276,7 @@ export function AdminPage() {
   };
 
   // Settings Credentials state
+  const [currentPassword, setCurrentPassword] = useState<string>("");
   const [newUsername, setNewUsername] = useState<string>("");
   const [newPassword, setNewPassword] = useState<string>("");
   const [confirmPassword, setConfirmPassword] = useState<string>("");
@@ -402,13 +403,20 @@ export function AdminPage() {
     }
   };
 
-  // Check initial authentication
+  // Check initial authentication and verify with backend server
   useEffect(() => {
     const auth = adminStore.isAuthenticated();
     setIsAuthenticated(auth);
     if (auth) {
       loadData();
     }
+    // Authoritative server-side verification: Modifying localStorage or sessionStorage cannot grant access!
+    adminStore.checkServerAuth().then((isValid) => {
+      setIsAuthenticated(isValid);
+      if (isValid) {
+        loadData();
+      }
+    });
   }, []);
 
   // Real-time synchronization for instant zero-delay updates (orders, cancellations, reservations)
@@ -655,25 +663,28 @@ export function AdminPage() {
   };
 
   // Login handler
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
     setIsLoggingIn(true);
 
-    setTimeout(() => {
-      const ok = adminStore.login(usernameInput, passwordInput);
+    try {
+      const ok = await adminStore.login(usernameInput, passwordInput);
       if (ok) {
         setIsAuthenticated(true);
         loadData();
       } else {
         setLoginError("Invalid username or password. Please check your credentials.");
       }
+    } catch {
+      setLoginError("Unable to connect to authentication server. Please try again.");
+    } finally {
       setIsLoggingIn(false);
-    }, 400);
+    }
   };
 
-  const handleLogout = () => {
-    adminStore.logout();
+  const handleLogout = async () => {
+    await adminStore.logout();
     setIsAuthenticated(false);
     setUsernameInput("");
     setPasswordInput("");
@@ -909,12 +920,16 @@ export function AdminPage() {
   };
 
   // Update Admin Credentials
-  const handleSaveCredentials = (e: React.FormEvent) => {
+  const handleSaveCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setSettingsError("");
 
-    if (!newUsername.trim()) {
-      setSettingsError("Username cannot be empty.");
+    if (!currentPassword) {
+      setSettingsError("Current password is required to change credentials.");
+      return;
+    }
+    if (!newUsername.trim() || newUsername.trim().length < 3) {
+      setSettingsError("Username must be at least 3 characters.");
       return;
     }
     if (newPassword.length < 8) {
@@ -926,15 +941,16 @@ export function AdminPage() {
       return;
     }
 
-    const ok = adminStore.updateCredentials(newUsername, newPassword);
-    if (ok) {
+    const res = await adminStore.updateCredentials(newUsername, newPassword, currentPassword);
+    if (res.success) {
       setShowSettingsModal(false);
+      setCurrentPassword("");
       setNewUsername("");
       setNewPassword("");
       setConfirmPassword("");
       showNotification("Admin credentials updated successfully!");
     } else {
-      setSettingsError("Failed to update credentials.");
+      setSettingsError(res.error || "Failed to update credentials.");
     }
   };
 
@@ -3475,6 +3491,20 @@ export function AdminPage() {
 
             <form onSubmit={handleSaveCredentials} className="space-y-3 text-xs">
               <div>
+                <label className="block font-bold text-[#191918] mb-1">
+                  Current Password *
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password to authorize changes"
+                  className="w-full p-2.5 rounded-lg border border-[#c9bba6] text-[#191918]"
+                />
+              </div>
+
+              <div>
                 <label className="block font-bold text-[#191918] mb-1">New Username *</label>
                 <input
                   type="text"
@@ -3523,7 +3553,11 @@ export function AdminPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowSettingsModal(false)}
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    setCurrentPassword("");
+                    setSettingsError("");
+                  }}
                   className="py-2.5 px-4 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold cursor-pointer"
                 >
                   Cancel

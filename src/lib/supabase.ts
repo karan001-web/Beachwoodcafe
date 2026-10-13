@@ -32,6 +32,7 @@ export interface OrderDbRow {
   cancelled_by: string | null;
   cancelled_at: number | null;
   cancellation_reason: string | null;
+  cancel_token?: string | null;
 }
 
 export interface ReservationDbRow {
@@ -151,6 +152,7 @@ export function orderToRow(order: AdminOrder): OrderDbRow {
     cancelled_by: order.cancelledBy || null,
     cancelled_at: order.cancelledAt || null,
     cancellation_reason: order.cancellationReason || null,
+    cancel_token: order.cancelToken || null,
   };
 }
 
@@ -191,6 +193,7 @@ export function rowToOrder(row: any): AdminOrder {
     cancelledBy: r["cancelled_by"] || r["cancelledBy"] || undefined,
     cancelledAt: r["cancelled_at"] ? Number(r["cancelled_at"]) : undefined,
     cancellationReason: r["cancellation_reason"] || r["cancellationReason"] || undefined,
+    cancelToken: r["cancel_token"] || r["cancelToken"] || undefined,
   };
 }
 

@@ -516,7 +516,7 @@ export function OrderTrackerView({
     try {
       await fetch("/api/orders/update-status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...adminStore.getAuthHeaders() },
         body: JSON.stringify({
           orderId: selectedOrder.id,
           orderNumber: selectedOrder.orderNumber,

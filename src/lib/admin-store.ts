@@ -58,6 +58,7 @@ export interface AdminOrder {
   cancelledBy?: "customer" | "admin" | undefined;
   cancelledAt?: number | undefined;
   cancellationReason?: string | undefined;
+  cancelToken?: string | undefined;
 }
 
 export type ReservationStatus = "confirmed" | "seated" | "completed" | "cancelled";
@@ -123,9 +124,11 @@ const STORAGE_KEYS = {
   VISITOR_ID: "bwc_visitor_unique_id_v1",
   WHATSAPP_LOGS: "bwc_admin_whatsapp_logs_v1",
   ADMIN_AUTH: "bwc_admin_auth_session_v1",
+  ADMIN_TOKEN: "bwc_admin_token_v1",
   ADMIN_CREDS: "bwc_admin_credentials_v1",
   MAINTENANCE: "bwc_site_maintenance_mode_v1",
   CUSTOMER_ORDER_IDS: "bwc_customer_order_ids_v1",
+  CUSTOMER_ORDER_TOKENS: "bwc_customer_order_tokens_v1",
   LAST_ORDER_ID: "bwc_last_placed_order_id",
   NOTIFICATIONS: "bwc_admin_notifications_v1",
   SOUND_ENABLED: "bwc_admin_sound_enabled_v1",
@@ -373,42 +376,146 @@ export const adminStore = {
     };
   },
 
-  updateCredentials(newUsername: string, newPassword: string): boolean {
-    if (!newUsername.trim() || newPassword.length < 8) return false;
-    safeSetJSON(STORAGE_KEYS.ADMIN_CREDS, {
-      username: newUsername.trim(),
-      passwordHash: sha256(newPassword),
-    });
-    return true;
+  getAuthToken(): string {
+    if (typeof window === "undefined") return "";
+    try {
+      return (
+        sessionStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN) ||
+        localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN) ||
+        ""
+      );
+    } catch {
+      return "";
+    }
   },
 
-  login(usernameInput: string, passwordInput: string): boolean {
-    const rawCreds = safeGetJSON<{ username?: string; passwordHash?: string; password?: string }>(
-      STORAGE_KEYS.ADMIN_CREDS,
-      DEFAULT_CREDS,
-    );
-    const targetUsername = rawCreds?.username || DEFAULT_CREDS.username;
-    const inputHash = sha256(passwordInput);
-
-    // Secure verification: compare hashes (or migrate old plaintext entry if exists)
-    const isPasswordValid = rawCreds?.passwordHash
-      ? inputHash === rawCreds.passwordHash
-      : rawCreds?.password
-        ? passwordInput === rawCreds.password || inputHash === sha256(rawCreds.password)
-        : inputHash === DEFAULT_CREDS.passwordHash;
-
-    const isValid = usernameInput.trim() === targetUsername && isPasswordValid;
-
-    if (isValid && typeof window !== "undefined") {
-      const token = {
-        authenticated: true,
-        username: targetUsername,
-        loggedInAt: Date.now(),
-      };
-      sessionStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(token));
-      localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(token));
+  getAuthHeaders(): Record<string, string> {
+    const token = this.getAuthToken();
+    const headers: Record<string, string> = {
+      "x-bwc-csrf": "1",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+      headers["x-admin-token"] = token;
     }
-    return isValid;
+    return headers;
+  },
+
+  clearLocalAuth() {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+      sessionStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+    } catch {}
+  },
+
+  async checkServerAuth(): Promise<boolean> {
+    try {
+      const res = await fetch("/api/auth/verify", {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.authenticated) {
+          return true;
+        }
+      }
+      this.clearLocalAuth();
+      return false;
+    } catch {
+      // Fail closed: if auth server is unreachable, do not grant admin access
+      this.clearLocalAuth();
+      return false;
+    }
+  },
+
+  async updateCredentials(
+    newUsername: string,
+    newPassword: string,
+    currentPassword?: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!currentPassword || !currentPassword.trim()) {
+      return { success: false, error: "Current password is required to change admin credentials." };
+    }
+    if (!newUsername.trim() || newUsername.trim().length < 3) {
+      return { success: false, error: "Username must be at least 3 characters." };
+    }
+    if (newPassword.length < 8) {
+      return { success: false, error: "Password must be at least 8 characters long." };
+    }
+
+    try {
+      const res = await fetch("/api/auth/change-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
+        credentials: "include",
+        body: JSON.stringify({
+          currentPassword: currentPassword.trim(),
+          newUsername: newUsername.trim(),
+          newPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data?.success) {
+        if (data?.token && typeof window !== "undefined") {
+          sessionStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, data.token);
+          localStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, data.token);
+        }
+        return { success: true };
+      }
+      return { success: false, error: data?.error || "Failed to update credentials." };
+    } catch (e: any) {
+      console.warn("Server credentials update error:", e);
+      return { success: false, error: "Unable to connect to authentication server." };
+    }
+  },
+
+  async login(usernameInput: string, passwordInput: string): Promise<boolean> {
+    const trimmedUser = usernameInput.trim();
+    if (!trimmedUser || !passwordInput) return false;
+
+    // Authoritative server-side authentication ONLY — all local-only fallbacks permanently removed
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-bwc-csrf": "1" },
+        credentials: "include",
+        body: JSON.stringify({
+          username: trimmedUser,
+          password: passwordInput,
+        }),
+      });
+
+      if (!res.ok) {
+        return false;
+      }
+
+      const data = await res.json();
+      if (data?.success && data?.token) {
+        if (typeof window !== "undefined") {
+          const session = {
+            authenticated: true,
+            username: trimmedUser,
+            loggedInAt: Date.now(),
+          };
+          sessionStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(session));
+          localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(session));
+          sessionStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, data.token);
+          localStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, data.token);
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn("Server login fetch error:", e);
+      // Fail closed: throw error to display server unreachable error message in UI
+      throw new Error("Unable to connect to authentication server. Please check your network connection.");
+    }
   },
 
   isAuthenticated(): boolean {
@@ -425,10 +532,15 @@ export const adminStore = {
     }
   },
 
-  logout() {
-    if (typeof window === "undefined") return;
-    sessionStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
-    localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+  async logout(): Promise<void> {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        credentials: "include",
+      });
+    } catch {}
+    this.clearLocalAuth();
   },
 
   // --------------------------------------------------------------------------
@@ -495,11 +607,21 @@ export const adminStore = {
       return existing;
     }
 
+    const cancelToken =
+      orderInput.cancelToken ||
+      "ctk_" +
+        (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID().replace(/-/g, "")
+          : Math.random().toString(36).substring(2, 12)) +
+        "_" +
+        Date.now().toString(36);
+
     const newOrder: AdminOrder = {
       ...orderInput,
       id: "ord_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
       timestamp: Date.now(),
       status: "pending",
+      cancelToken,
     };
     orders.unshift(newOrder);
     safeSetJSON(STORAGE_KEYS.ORDERS, orders);
@@ -514,6 +636,15 @@ export const adminStore = {
           safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, customerOrderIds.slice(0, 20));
         }
         localStorage.setItem(STORAGE_KEYS.LAST_ORDER_ID, newOrder.orderNumber);
+
+        // Store customer ownership cancel token
+        const customerTokens = safeGetJSON<Record<string, string>>(
+          STORAGE_KEYS.CUSTOMER_ORDER_TOKENS,
+          {},
+        );
+        customerTokens[newOrder.orderNumber] = cancelToken;
+        customerTokens[newOrder.id] = cancelToken;
+        safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_TOKENS, customerTokens);
       } catch (err) {
         console.error("Failed to store customer order id:", err);
       }
@@ -546,7 +677,7 @@ export const adminStore = {
       // Background sync to server API so other devices (admin computer/phone) receive it
       fetch("/api/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
         body: JSON.stringify({ order: newOrder }),
       }).catch((err) => console.warn("Background order sync to server:", err));
 
@@ -665,7 +796,7 @@ export const adminStore = {
       // Background sync to serverless cache
       fetch("/api/orders/update-status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
         body: JSON.stringify({
           orderId: orders[idx]!.id,
           orderNumber: orders[idx]!.orderNumber,
@@ -779,15 +910,29 @@ export const adminStore = {
         }),
       );
 
+      // Retrieve customer cancel token for order ownership validation
+      const customerTokens = safeGetJSON<Record<string, string>>(
+        STORAGE_KEYS.CUSTOMER_ORDER_TOKENS,
+        {},
+      );
+      const cancelToken =
+        order.cancelToken ||
+        customerTokens[order.orderNumber] ||
+        customerTokens[order.id] ||
+        customerTokens[cleanIdentifier] ||
+        "";
+
       // Sync cancellation to server
       fetch("/api/orders/update-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          orderId: order.orderNumber,
+          orderId: order.id || order.orderNumber,
+          orderNumber: order.orderNumber,
           status: "cancelled",
           cancelledBy: "customer",
           cancellationReason: order.cancellationReason,
+          cancelToken,
         }),
       }).catch((err) => console.warn("Background cancel sync to server:", err));
 
@@ -857,9 +1002,10 @@ export const adminStore = {
       // Sync admin cancellation to server
       fetch("/api/orders/update-status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
         body: JSON.stringify({
-          orderId: order.orderNumber,
+          orderId: order.id || order.orderNumber,
+          orderNumber: order.orderNumber,
           status: "cancelled",
           cancelledBy: "admin",
           cancellationReason: order.cancellationReason,
@@ -1008,7 +1154,7 @@ export const adminStore = {
     return undefined;
   },
 
-  // Asynchronous robust cross-device order lookup (Local -> Supabase -> Server API)
+  // Asynchronous robust cross-device order lookup (Server API -> Local Storage Fallback)
   async lookupOrder(query: string): Promise<AdminOrder | undefined> {
     if (!query || !query.trim()) return undefined;
     const cleanQuery = query.trim().replace(/^#/, "");
@@ -1020,56 +1166,93 @@ export const adminStore = {
       return undefined;
     }
 
-    // 2. Search Supabase directly (authoritative persistent cloud database)
-    if (isSupabaseConfigured()) {
-      try {
-        const sbOrder = await fetchSingleOrderFromSupabase(query);
-        if (sbOrder) {
-          const sbNum = String(sbOrder.orderNumber || "")
+    // 2. Retrieve customer's saved cancel token for this order if available locally
+    let cancelToken = "";
+    if (typeof window !== "undefined") {
+      const customerTokens = safeGetJSON<Record<string, string>>(
+        STORAGE_KEYS.CUSTOMER_ORDER_TOKENS,
+        {},
+      );
+      cancelToken =
+        customerTokens[cleanQuery] ||
+        customerTokens[cleanLower] ||
+        customerTokens[`#${cleanQuery}`] ||
+        "";
+    }
+
+    // 3. Search via secure server tracking endpoint
+    try {
+      const trackUrl = new URL("/api/orders/track", window.location.origin);
+      trackUrl.searchParams.set("order", cleanQuery);
+      if (cancelToken) trackUrl.searchParams.set("token", cancelToken);
+      if (!/[a-zA-Z]/.test(cleanQuery) && cleanDigits.length >= 4) {
+        trackUrl.searchParams.set("phone", cleanDigits);
+      }
+
+      const res = await fetch(trackUrl.toString(), {
+        headers: { ...this.getAuthHeaders() },
+      });
+
+      if (res.status === 404) {
+        // Order confirmed not found or deleted on server
+        const localMatch = this.findOrder(query);
+        if (localMatch) {
+          this.purgeDeletedOrder(localMatch.id, localMatch.orderNumber);
+        }
+        return undefined;
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.order) {
+          const remoteOrder = data.order as AdminOrder;
+          const remoteNum = String(remoteOrder.orderNumber || "")
             .replace(/^#/, "")
             .trim()
             .toLowerCase();
-          const sbId = String(sbOrder.id || "")
-            .trim()
-            .toLowerCase();
-          if (!this.isOrderDeleted(sbNum) && !this.isOrderDeleted(sbId)) {
+          const remoteId = String(remoteOrder.id || "").trim().toLowerCase();
+
+          if (!this.isOrderDeleted(remoteNum) && !this.isOrderDeleted(remoteId)) {
             const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
             const existingIdx = orders.findIndex(
-              (o) => o && (o.id === sbOrder.id || o.orderNumber === sbOrder.orderNumber),
+              (o) => o && (o.id === remoteOrder.id || o.orderNumber === remoteOrder.orderNumber),
             );
+
+            let mergedOrder: AdminOrder;
             if (existingIdx !== -1) {
-              orders[existingIdx] = sbOrder;
+              const existing = orders[existingIdx]!;
+              // If remote was sanitized but local has full customer details, preserve full details
+              mergedOrder = {
+                ...remoteOrder,
+                customerName: existing.customerName || remoteOrder.customerName,
+                customerPhone: existing.customerPhone || remoteOrder.customerPhone,
+                customerEmail: existing.customerEmail || remoteOrder.customerEmail,
+                deliveryAddress: existing.deliveryAddress || remoteOrder.deliveryAddress,
+                cardLast4: existing.cardLast4 || remoteOrder.cardLast4,
+                cancelToken: existing.cancelToken || remoteOrder.cancelToken,
+              };
+              orders[existingIdx] = mergedOrder;
             } else {
-              orders.unshift(sbOrder);
+              mergedOrder = remoteOrder;
+              orders.unshift(mergedOrder);
             }
             safeSetJSON(STORAGE_KEYS.ORDERS, orders);
-            this.recordCustomerOrderId(sbOrder.orderNumber);
-            return sbOrder;
+            this.recordCustomerOrderId(mergedOrder.orderNumber);
+            return mergedOrder;
           }
-        } else {
-          // If query looks like an order ID or orderNumber and Supabase returned null,
-          // the order does NOT exist in the cloud (it was deleted or never placed).
-          // Purge any stale local copy so it is never shown as a zombie order.
-          const localMatch = this.findOrder(query);
-          if (localMatch) {
-            this.purgeDeletedOrder(localMatch.id, localMatch.orderNumber);
-          }
-          return undefined;
         }
-      } catch (err) {
-        console.warn("Supabase lookupOrder error:", err);
       }
+    } catch (err) {
+      console.warn("Server tracking lookup error:", err);
     }
 
-    // 3. Check local memory / localStorage fallback (if offline or Supabase unconfigured)
+    // 4. Check local memory / localStorage fallback (if offline or server unreachable)
     const localMatch = this.findOrder(query);
     if (localMatch) {
       return localMatch;
     }
 
-    // 4. Fallback to server sync with target query
-    await this.syncWithServer(query);
-    return this.findOrder(query);
+    return undefined;
   },
 
   // Customer order history on this browser
@@ -1207,7 +1390,7 @@ export const adminStore = {
     // 4. Send delete to server API
     fetch("/api/orders/delete", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
       body: JSON.stringify({
         orderId: effectiveId || orderId,
         orderNumber: effectiveNum || orderNumber,
@@ -1304,7 +1487,7 @@ export const adminStore = {
       // Background sync to server API so other devices receive it
       fetch("/api/reservations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
         body: JSON.stringify({ reservation: newRes }),
       }).catch((err) => console.warn("Background reservation sync to server:", err));
 
@@ -1366,7 +1549,7 @@ export const adminStore = {
       // Background sync to server
       fetch("/api/reservations/update-status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
         body: JSON.stringify({
           resId: reservations[idx]!.id,
           reservationNumber: reservations[idx]!.reservationNumber,
@@ -1431,7 +1614,7 @@ export const adminStore = {
     // 3. Send delete to server API
     fetch("/api/reservations/delete", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
       body: JSON.stringify({
         resId: effectiveId || resId,
         reservationNumber: effectiveNum || reservationNumber,
@@ -1943,7 +2126,7 @@ export const adminStore = {
     }
 
     try {
-      await fetch("/api/clear-all", { method: "POST" });
+      await fetch("/api/clear-all", { method: "POST", headers: { ...this.getAuthHeaders() } });
     } catch {
       // server clear API offline
     }
@@ -2206,7 +2389,7 @@ export const adminStore = {
 
       // 1. Fetch remote orders and reservations from server and Supabase in parallel
       const [resData, sbOrders, sbReservations] = await Promise.all([
-        fetch("/api/sync", { cache: "no-store" })
+        fetch("/api/sync", { headers: { ...this.getAuthHeaders() }, cache: "no-store" })
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
         isSupabaseConfigured() ? fetchOrdersFromSupabase() : Promise.resolve([]),
@@ -2313,19 +2496,26 @@ export const adminStore = {
       let hasOrderDeletions = false;
       let hasResDeletions = false;
 
-      // Reconcile deletions from authoritative Supabase cloud database:
-      // If an order/reservation exists locally on this device (placed earlier), but has been deleted from Supabase,
-      // purge it immediately from local memory, customer history, and active tracker view.
-      if (isSupabaseConfigured() && Array.isArray(sbOrders)) {
-        const supabaseOrderKeys = new Set<string>();
-        for (const so of sbOrders) {
+      // Reconcile deletions only when we have an authoritative remote list:
+      // 1. If staff is authenticated, /api/sync (resData.orders) is authoritative.
+      // 2. Direct browser sbOrders is only authoritative if non-empty. An empty sbOrders from RLS must NEVER purge local orders!
+      const authoritativeOrders: AdminOrder[] | null =
+        resData?.success && Array.isArray(resData.orders)
+          ? resData.orders
+          : Array.isArray(sbOrders) && sbOrders.length > 0
+            ? sbOrders
+            : null;
+
+      if (authoritativeOrders !== null) {
+        const remoteOrderKeys = new Set<string>();
+        for (const so of authoritativeOrders) {
           if (!so) continue;
-          if (so.id) supabaseOrderKeys.add(String(so.id).trim().toLowerCase());
+          if (so.id) remoteOrderKeys.add(String(so.id).trim().toLowerCase());
           if (so.orderNumber) {
             const clean = String(so.orderNumber).replace(/^#/, "").trim().toLowerCase();
             if (clean) {
-              supabaseOrderKeys.add(clean);
-              supabaseOrderKeys.add(`#${clean}`);
+              remoteOrderKeys.add(clean);
+              remoteOrderKeys.add(`#${clean}`);
             }
           }
         }
@@ -2341,7 +2531,7 @@ export const adminStore = {
             : "";
 
           const existsRemotely =
-            (locId && supabaseOrderKeys.has(locId)) || (locNum && supabaseOrderKeys.has(locNum));
+            (locId && remoteOrderKeys.has(locId)) || (locNum && remoteOrderKeys.has(locNum));
 
           // Allow a brief 20-second grace window for brand-new in-flight orders just placed on this client
           const isJustPlaced = loc.timestamp && Date.now() - loc.timestamp < 20000;
@@ -2349,7 +2539,7 @@ export const adminStore = {
           if (existsRemotely || isJustPlaced) {
             survivingOrders.push(loc);
           } else {
-            // It does not exist in Supabase! It was deleted on another device or purged!
+            // It was deleted on another device or purged by staff
             hasOrderDeletions = true;
             if (locId && !deletedOrderIds.includes(locId)) deletedOrderIds.push(locId);
             if (locNum && !deletedOrderIds.includes(locNum)) deletedOrderIds.push(locNum);
@@ -2390,16 +2580,23 @@ export const adminStore = {
         safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deletedOrderIds.slice(-200));
       }
 
-      if (isSupabaseConfigured() && Array.isArray(sbReservations)) {
-        const supabaseResKeys = new Set<string>();
-        for (const sr of safeSbReservations) {
+      const authoritativeReservations: AdminReservation[] | null =
+        resData?.success && Array.isArray(resData.reservations)
+          ? resData.reservations
+          : Array.isArray(sbReservations) && sbReservations.length > 0
+            ? sbReservations
+            : null;
+
+      if (authoritativeReservations !== null) {
+        const remoteResKeys = new Set<string>();
+        for (const sr of authoritativeReservations) {
           if (!sr) continue;
-          if (sr.id) supabaseResKeys.add(String(sr.id).trim().toLowerCase());
+          if (sr.id) remoteResKeys.add(String(sr.id).trim().toLowerCase());
           if (sr.reservationNumber) {
             const clean = String(sr.reservationNumber).replace(/^#/, "").trim().toLowerCase();
             if (clean) {
-              supabaseResKeys.add(clean);
-              supabaseResKeys.add(`#${clean}`);
+              remoteResKeys.add(clean);
+              remoteResKeys.add(`#${clean}`);
             }
           }
         }
@@ -2414,7 +2611,7 @@ export const adminStore = {
             : "";
 
           const existsRemotely =
-            (locId && supabaseResKeys.has(locId)) || (locNum && supabaseResKeys.has(locNum));
+            (locId && remoteResKeys.has(locId)) || (locNum && remoteResKeys.has(locNum));
 
           const isJustPlaced = loc.timestamp && Date.now() - loc.timestamp < 20000;
 
@@ -2729,7 +2926,7 @@ export const adminStore = {
         if (unpushedOrders.length > 0) {
           fetch("/api/orders", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
             body: JSON.stringify({ orders: unpushedOrders }),
           }).catch(() => {});
         }
@@ -2759,7 +2956,7 @@ export const adminStore = {
       if (unpushedReservations.length > 0) {
         fetch("/api/reservations", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...this.getAuthHeaders() },
           body: JSON.stringify({ reservations: unpushedReservations }),
         }).catch(() => {});
       }
