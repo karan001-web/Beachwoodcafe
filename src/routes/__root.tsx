@@ -125,6 +125,12 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith("/bwc-staff-gate-x89k");
+  const isDecoyRoute = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
+
+  // If on decoy admin route, isolate completely with zero site chrome/headers/footers
+  if (isDecoyRoute) {
+    return <Outlet />;
+  }
 
   // Maintenance mode state
   const [maintenance, setMaintenance] = useState(() => adminStore.getMaintenanceConfig());

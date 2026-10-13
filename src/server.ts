@@ -1157,12 +1157,131 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
   });
 }
 
+function getChromeNetErrorHtml(host: string): string {
+  const cleanHost = host.replace(/:\d+$/, "");
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${cleanHost}</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M4 3h11l5 5v13H4V3z' stroke='%239aa0a6' stroke-width='2'/%3E%3Cpath d='M15 3v5h5' stroke='%239aa0a6' stroke-width='2'/%3E%3Crect x='8' y='11' width='2' height='2' fill='%239aa0a6'/%3E%3Crect x='14' y='11' width='2' height='2' fill='%239aa0a6'/%3E%3Cpath d='M9 17c1.5-1.5 4.5-1.5 6 0' stroke='%239aa0a6' stroke-width='2'/%3E%3C/svg%3E">
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #202124;
+      color: #9aa0a6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrapper {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .container {
+      max-width: 560px;
+      width: 100%;
+      margin: 0 auto;
+      text-align: left;
+    }
+    .icon {
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 500;
+      color: #e8eaed;
+      margin: 0 0 16px 0;
+      line-height: 1.3;
+      letter-spacing: -0.2px;
+    }
+    p {
+      font-size: 13px;
+      color: #9aa0a6;
+      margin: 0 0 16px 0;
+      line-height: 20px;
+    }
+    p.secondary {
+      margin-bottom: 24px;
+    }
+    .link {
+      color: #8ab4f8;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .error-code {
+      font-size: 11px;
+      color: #9aa0a6;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      margin: 0 0 32px 0;
+    }
+    button {
+      background-color: #8ab4f8;
+      color: #202124;
+      border: none;
+      border-radius: 100px;
+      padding: 8px 24px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      outline: none;
+      transition: background-color 0.15s ease;
+    }
+    button:hover {
+      background-color: #93bbf9;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="icon">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 3H15L20 8V21H4V3Z" stroke="#9aa0a6" stroke-width="1.75" stroke-linejoin="round" />
+          <path d="M15 3V8H20" stroke="#9aa0a6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+          <rect x="8" y="11" width="1.8" height="1.8" fill="#9aa0a6" />
+          <rect x="14" y="11" width="1.8" height="1.8" fill="#9aa0a6" />
+          <path d="M9 17C10.5 15.2 13.5 15.2 15 17" stroke="#9aa0a6" stroke-width="1.75" stroke-linecap="round" />
+        </svg>
+      </div>
+      <h1>This site can’t be reached</h1>
+      <p>Check if there is a typo in ${cleanHost}.</p>
+      <p class="secondary">If spelling is correct, <span class="link" onclick="window.location.reload()">try running Windows Network Diagnostics</span>.</p>
+      <div class="error-code">DNS_PROBE_FINISHED_NXDOMAIN</div>
+      <button type="button" onclick="window.location.reload()">Reload</button>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const url = new URL(request.url);
       if (url.pathname.startsWith("/api/")) {
         return await handleApiRequest(request, url);
+      }
+
+      if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+        const host = request.headers.get("host") || "beachwoodcafe.vercel.app";
+        return new Response(getChromeNetErrorHtml(host), {
+          status: 404,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "x-robots-tag": "noindex, nofollow",
+          },
+        });
       }
 
       const handler = await getServerEntry();
