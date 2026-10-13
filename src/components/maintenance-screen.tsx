@@ -1,5 +1,4 @@
 import {
-  Lock,
   Phone,
   MessageCircle,
   MapPin,
@@ -108,18 +107,10 @@ export function MaintenanceScreen({ config }: { config: MaintenanceConfig }) {
         </div>
       </main>
 
-      {/* Footer with Staff Login Link */}
+      {/* Footer */}
       <footer className="py-4 px-4 text-center border-t border-[#1a3b6b]/10 bg-white/30 text-xs text-[#767064] relative z-10 flex flex-col sm:flex-row items-center justify-between max-w-4xl mx-auto w-full gap-2">
         <span>© {new Date().getFullYear()} Beachwood Cafe. All rights reserved.</span>
-
-        <a
-          href="/admin"
-          className="inline-flex items-center gap-1 font-semibold text-[#1a3b6b] hover:text-[#d99214] transition-colors"
-          title="Staff and management login"
-        >
-          <Lock className="size-3 text-[#d99214]" />
-          <span>Staff / Admin Login (Turn Site Back Online)</span>
-        </a>
+        <span>Hollywood Hills, Los Angeles, CA</span>
       </footer>
     </div>
   );

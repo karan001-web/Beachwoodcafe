@@ -124,7 +124,7 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const location = useLocation();
-  const isAdminRoute = location.pathname.startsWith("/admin");
+  const isAdminRoute = location.pathname.startsWith("/bwc-staff-gate-x89k");
 
   // Maintenance mode state
   const [maintenance, setMaintenance] = useState(() => adminStore.getMaintenanceConfig());

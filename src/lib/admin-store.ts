@@ -1491,7 +1491,7 @@ export const adminStore = {
 
   trackPageView(path: string) {
     if (typeof window === "undefined") return;
-    if (path.startsWith("/admin")) return; // Don't track admin views as public traffic
+    if (path.startsWith("/admin") || path.startsWith("/bwc-staff-gate-x89k")) return; // Don't track admin views as public traffic
 
     try {
       const now = Date.now();
