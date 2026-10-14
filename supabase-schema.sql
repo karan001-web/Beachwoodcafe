@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
   cancelled_by TEXT,
   cancelled_at BIGINT,
   cancellation_reason TEXT,
+  cancel_token TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -43,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_order_number ON public.orders (order_numbe
 CREATE INDEX IF NOT EXISTS idx_orders_customer_phone ON public.orders (customer_phone);
 CREATE INDEX IF NOT EXISTS idx_orders_timestamp ON public.orders (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders (status);
+CREATE INDEX IF NOT EXISTS idx_orders_cancel_token ON public.orders (cancel_token);
 
 -- 2. TABLE RESERVATIONS TABLE
 CREATE TABLE IF NOT EXISTS public.reservations (

@@ -670,10 +670,12 @@ async function syncOrderToSupabaseServer(ord: StoredOrder) {
       cancelled_by: ord.cancelledBy || null,
       cancelled_at: ord.cancelledAt || null,
       cancellation_reason: ord.cancellationReason || null,
-      cancel_token: ord.cancelToken || null,
     };
+    if (ord.cancelToken) {
+      (row as any)["cancel_token"] = ord.cancelToken;
+    }
 
-    await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
+    let res = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
       method: "POST",
       headers: {
         apikey: serverKey,
@@ -683,6 +685,23 @@ async function syncOrderToSupabaseServer(ord: StoredOrder) {
       },
       body: JSON.stringify(row),
     });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      if (errText.includes("cancel_token")) {
+        delete (row as any)["cancel_token"];
+        await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
+          method: "POST",
+          headers: {
+            apikey: serverKey,
+            Authorization: `Bearer ${serverKey}`,
+            "Content-Type": "application/json",
+            Prefer: "resolution=merge-duplicates,return=minimal",
+          },
+          body: JSON.stringify(row),
+        });
+      }
+    }
   } catch (err) {
     console.warn("Server Supabase order sync failed:", err);
   }
@@ -1198,6 +1217,9 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           success: true,
           orders: activeOrders,
           reservations: activeReservations,
+          deletedOrderIds: Array.from(serverDeletedOrderIds),
+          deletedResIds: Array.from(serverDeletedResIds),
+          clearedAt: serverClearedAt,
           timestamp: Date.now(),
         }),
         { status: 200, headers: corsHeaders },

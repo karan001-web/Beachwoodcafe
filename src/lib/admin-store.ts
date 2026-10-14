@@ -359,6 +359,52 @@ function broadcastEvent(type: string, payload: any) {
   publishCloudEvent(type, wrappedPayload);
 }
 
+// Active background sync guards to avoid duplicate retry storms
+const activeSyncingOrderIds = new Set<string>();
+const activeSyncingResIds = new Set<string>();
+
+function retryUnsyncedOrderSafe(order: AdminOrder) {
+  if (!order || !order.id || typeof window === "undefined") return;
+  const key = String(order.id).trim();
+  if (activeSyncingOrderIds.has(key)) return;
+  activeSyncingOrderIds.add(key);
+
+  const authHeaders = adminStore.getAuthHeaders();
+  Promise.all([
+    fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ order }),
+    }).catch(() => null),
+    isSupabaseConfigured() ? upsertOrderToSupabase(order).catch(() => false) : Promise.resolve(false),
+  ]).finally(() => {
+    setTimeout(() => {
+      activeSyncingOrderIds.delete(key);
+    }, 5000);
+  });
+}
+
+function retryUnsyncedReservationSafe(res: AdminReservation) {
+  if (!res || !res.id || typeof window === "undefined") return;
+  const key = String(res.id).trim();
+  if (activeSyncingResIds.has(key)) return;
+  activeSyncingResIds.add(key);
+
+  const authHeaders = adminStore.getAuthHeaders();
+  Promise.all([
+    fetch("/api/reservations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ reservation: res }),
+    }).catch(() => null),
+    isSupabaseConfigured() ? upsertReservationToSupabase(res).catch(() => false) : Promise.resolve(false),
+  ]).finally(() => {
+    setTimeout(() => {
+      activeSyncingResIds.delete(key);
+    }, 5000);
+  });
+}
+
 // ============================================================================
 // ADMIN STORE API
 // ============================================================================
@@ -2488,173 +2534,181 @@ export const adminStore = {
 
       const deletedOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_ORDER_IDS, []);
       const deletedResIds = safeGetJSON<string[]>(STORAGE_KEYS.DELETED_RES_IDS, []);
-      const clearedAt =
+      let clearedAt =
         typeof window !== "undefined"
           ? parseInt(localStorage.getItem(STORAGE_KEYS.DATA_CLEARED_AT) || "0", 10)
           : 0;
 
+      // Update tombstones & clear timestamp from server response if available
+      if (resData?.deletedOrderIds && Array.isArray(resData.deletedOrderIds)) {
+        for (const did of resData.deletedOrderIds) {
+          const c = String(did || "").trim().toLowerCase().replace(/^#/, "");
+          if (c && !deletedOrderIds.includes(c)) deletedOrderIds.push(c);
+        }
+      }
+      if (resData?.deletedResIds && Array.isArray(resData.deletedResIds)) {
+        for (const drid of resData.deletedResIds) {
+          const c = String(drid || "").trim().toLowerCase().replace(/^#/, "");
+          if (c && !deletedResIds.includes(c)) deletedResIds.push(c);
+        }
+      }
+      if (typeof resData?.clearedAt === "number" && resData.clearedAt > clearedAt) {
+        clearedAt = resData.clearedAt;
+        if (typeof window !== "undefined") {
+          localStorage.setItem(STORAGE_KEYS.DATA_CLEARED_AT, String(clearedAt));
+        }
+      }
+
       let hasOrderDeletions = false;
       let hasResDeletions = false;
 
-      // Reconcile deletions only when we have an authoritative remote list:
-      // 1. If staff is authenticated, /api/sync (resData.orders) is authoritative.
-      // 2. Direct browser sbOrders is only authoritative if non-empty. An empty sbOrders from RLS must NEVER purge local orders!
-      const authoritativeOrders: AdminOrder[] | null =
-        resData?.success && Array.isArray(resData.orders)
-          ? resData.orders
-          : Array.isArray(sbOrders) && sbOrders.length > 0
-            ? sbOrders
-            : null;
-
-      if (authoritativeOrders !== null) {
-        const remoteOrderKeys = new Set<string>();
-        for (const so of authoritativeOrders) {
-          if (!so) continue;
-          if (so.id) remoteOrderKeys.add(String(so.id).trim().toLowerCase());
-          if (so.orderNumber) {
-            const clean = String(so.orderNumber).replace(/^#/, "").trim().toLowerCase();
-            if (clean) {
-              remoteOrderKeys.add(clean);
-              remoteOrderKeys.add(`#${clean}`);
-            }
+      // Reconcile order deletions strictly based on intentional deletion records:
+      // An order is deleted ONLY if:
+      // 1. It is explicitly recorded in deletedOrderIds (tombstone)
+      // 2. OR it was placed before clearedAt (staff performed clear-all)
+      // Schema errors, network errors, or missing remote responses must NEVER delete local orders!
+      const remoteOrderKeys = new Set<string>();
+      for (const so of remoteOrders) {
+        if (!so) continue;
+        if (so.id) remoteOrderKeys.add(String(so.id).trim().toLowerCase());
+        if (so.orderNumber) {
+          const clean = String(so.orderNumber).replace(/^#/, "").trim().toLowerCase();
+          if (clean) {
+            remoteOrderKeys.add(clean);
+            remoteOrderKeys.add(`#${clean}`);
           }
         }
+      }
 
-        const survivingOrders: AdminOrder[] = [];
-        const deletedCustomerIds = new Set<string>();
+      const survivingOrders: AdminOrder[] = [];
+      const deletedCustomerIds = new Set<string>();
 
-        for (const loc of localOrders) {
-          if (!loc) continue;
-          const locId = loc.id ? String(loc.id).trim().toLowerCase() : "";
-          const locNum = loc.orderNumber
-            ? String(loc.orderNumber).replace(/^#/, "").trim().toLowerCase()
-            : "";
+      for (const loc of localOrders) {
+        if (!loc) continue;
+        const locId = loc.id ? String(loc.id).trim().toLowerCase() : "";
+        const locNum = loc.orderNumber
+          ? String(loc.orderNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
 
+        const isTombstoned =
+          (locId && deletedOrderIds.includes(locId)) ||
+          (locNum && deletedOrderIds.includes(locNum)) ||
+          (clearedAt > 0 && loc.timestamp && loc.timestamp <= clearedAt);
+
+        if (isTombstoned) {
+          hasOrderDeletions = true;
+          if (locId) deletedCustomerIds.add(locId);
+          if (locNum) deletedCustomerIds.add(locNum);
+
+          window.dispatchEvent(
+            new CustomEvent("bwc_order_change", {
+              detail: { orderId: loc.id, orderNumber: loc.orderNumber, action: "delete" },
+            }),
+          );
+        } else {
+          survivingOrders.push(loc);
+          // If this local order does not exist remotely yet, safely retry background sync
           const existsRemotely =
             (locId && remoteOrderKeys.has(locId)) || (locNum && remoteOrderKeys.has(locNum));
-
-          // Allow a brief 20-second grace window for brand-new in-flight orders just placed on this client
-          const isJustPlaced = loc.timestamp && Date.now() - loc.timestamp < 20000;
-
-          if (existsRemotely || isJustPlaced) {
-            survivingOrders.push(loc);
-          } else {
-            // It was deleted on another device or purged by staff
-            hasOrderDeletions = true;
-            if (locId && !deletedOrderIds.includes(locId)) deletedOrderIds.push(locId);
-            if (locNum && !deletedOrderIds.includes(locNum)) deletedOrderIds.push(locNum);
-            if (locId) deletedCustomerIds.add(locId);
-            if (locNum) deletedCustomerIds.add(locNum);
-
-            window.dispatchEvent(
-              new CustomEvent("bwc_order_change", {
-                detail: { orderId: loc.id, orderNumber: loc.orderNumber, action: "delete" },
-              }),
-            );
+          if (!existsRemotely) {
+            retryUnsyncedOrderSafe(loc);
           }
         }
-
-        if (hasOrderDeletions) {
-          safeSetJSON(STORAGE_KEYS.ORDERS, survivingOrders);
-          localOrders.length = 0;
-          localOrders.push(...survivingOrders);
-        }
-
-        if (deletedCustomerIds.size > 0) {
-          const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
-          const updatedCustomerIds = customerOrderIds.filter((cid) => {
-            const c = String(cid).replace(/^#/, "").trim().toLowerCase();
-            return !deletedCustomerIds.has(c);
-          });
-          safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, updatedCustomerIds);
-
-          const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
-          if (
-            lastId &&
-            deletedCustomerIds.has(String(lastId).replace(/^#/, "").trim().toLowerCase())
-          ) {
-            localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
-          }
-        }
-
-        safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deletedOrderIds.slice(-200));
       }
 
-      const authoritativeReservations: AdminReservation[] | null =
-        resData?.success && Array.isArray(resData.reservations)
-          ? resData.reservations
-          : Array.isArray(sbReservations) && sbReservations.length > 0
-            ? sbReservations
-            : null;
+      if (hasOrderDeletions) {
+        safeSetJSON(STORAGE_KEYS.ORDERS, survivingOrders);
+        localOrders.length = 0;
+        localOrders.push(...survivingOrders);
+      }
 
-      if (authoritativeReservations !== null) {
-        const remoteResKeys = new Set<string>();
-        for (const sr of authoritativeReservations) {
-          if (!sr) continue;
-          if (sr.id) remoteResKeys.add(String(sr.id).trim().toLowerCase());
-          if (sr.reservationNumber) {
-            const clean = String(sr.reservationNumber).replace(/^#/, "").trim().toLowerCase();
-            if (clean) {
-              remoteResKeys.add(clean);
-              remoteResKeys.add(`#${clean}`);
-            }
+      if (deletedCustomerIds.size > 0) {
+        const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+        const updatedCustomerIds = customerOrderIds.filter((cid) => {
+          const c = String(cid).replace(/^#/, "").trim().toLowerCase();
+          return !deletedCustomerIds.has(c);
+        });
+        safeSetJSON(STORAGE_KEYS.CUSTOMER_ORDER_IDS, updatedCustomerIds);
+
+        const lastId = localStorage.getItem(STORAGE_KEYS.LAST_ORDER_ID);
+        if (
+          lastId &&
+          deletedCustomerIds.has(String(lastId).replace(/^#/, "").trim().toLowerCase())
+        ) {
+          localStorage.removeItem(STORAGE_KEYS.LAST_ORDER_ID);
+        }
+      }
+
+      safeSetJSON(STORAGE_KEYS.DELETED_ORDER_IDS, deletedOrderIds.slice(-200));
+
+      // Reconcile reservation deletions strictly based on intentional deletion records:
+      const remoteResKeys = new Set<string>();
+      for (const sr of remoteReservations) {
+        if (!sr) continue;
+        if (sr.id) remoteResKeys.add(String(sr.id).trim().toLowerCase());
+        if (sr.reservationNumber) {
+          const clean = String(sr.reservationNumber).replace(/^#/, "").trim().toLowerCase();
+          if (clean) {
+            remoteResKeys.add(clean);
+            remoteResKeys.add(`#${clean}`);
           }
         }
+      }
 
-        const survivingRes: AdminReservation[] = [];
+      const survivingRes: AdminReservation[] = [];
 
-        for (const loc of localReservations) {
-          if (!loc) continue;
-          const locId = loc.id ? String(loc.id).trim().toLowerCase() : "";
-          const locNum = loc.reservationNumber
-            ? String(loc.reservationNumber).replace(/^#/, "").trim().toLowerCase()
-            : "";
+      for (const loc of localReservations) {
+        if (!loc) continue;
+        const locId = loc.id ? String(loc.id).trim().toLowerCase() : "";
+        const locNum = loc.reservationNumber
+          ? String(loc.reservationNumber).replace(/^#/, "").trim().toLowerCase()
+          : "";
 
+        const isTombstoned =
+          (locId && deletedResIds.includes(locId)) ||
+          (locNum && deletedResIds.includes(locNum)) ||
+          (clearedAt > 0 && loc.timestamp && loc.timestamp <= clearedAt);
+
+        if (isTombstoned) {
+          hasResDeletions = true;
+          window.dispatchEvent(
+            new CustomEvent("bwc_reservation_change", {
+              detail: {
+                resId: loc.id,
+                reservationNumber: loc.reservationNumber,
+                action: "delete",
+              },
+            }),
+          );
+        } else {
+          survivingRes.push(loc);
           const existsRemotely =
             (locId && remoteResKeys.has(locId)) || (locNum && remoteResKeys.has(locNum));
-
-          const isJustPlaced = loc.timestamp && Date.now() - loc.timestamp < 20000;
-
-          if (existsRemotely || isJustPlaced) {
-            survivingRes.push(loc);
-          } else {
-            hasResDeletions = true;
-            if (locId && !deletedResIds.includes(locId)) deletedResIds.push(locId);
-            if (locNum && !deletedResIds.includes(locNum)) deletedResIds.push(locNum);
-
-            window.dispatchEvent(
-              new CustomEvent("bwc_reservation_change", {
-                detail: {
-                  resId: loc.id,
-                  reservationNumber: loc.reservationNumber,
-                  action: "delete",
-                },
-              }),
-            );
+          if (!existsRemotely) {
+            retryUnsyncedReservationSafe(loc);
           }
         }
-
-        if (hasResDeletions) {
-          safeSetJSON(STORAGE_KEYS.RESERVATIONS, survivingRes);
-          localReservations.length = 0;
-          localReservations.push(...survivingRes);
-        }
-
-        safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, deletedResIds.slice(-200));
       }
+
+      if (hasResDeletions) {
+        safeSetJSON(STORAGE_KEYS.RESERVATIONS, survivingRes);
+        localReservations.length = 0;
+        localReservations.push(...survivingRes);
+      }
+
+      safeSetJSON(STORAGE_KEYS.DELETED_RES_IDS, deletedResIds.slice(-200));
 
       let newOrdersCount = 0;
       let updatedOrdersCount = 0;
       let newReservationsCount = 0;
       let updatedReservationsCount = 0;
 
-      // Merge remote orders into local state
+      // Merge remote orders into local state without dropping unsynced orders
       const mergedOrders = [...localOrders];
       const isUserAdmin = this.isAuthenticated();
 
-      // For authenticated Admin: directly reflect authoritative remote orders from Supabase!
+      // For authenticated Admin: ensure all remote orders from Supabase are merged in
       if (isUserAdmin && isSupabaseConfigured() && Array.isArray(sbOrders)) {
-        mergedOrders.length = 0;
         const seenOrderKeys = new Set<string>();
 
         // 1. Authoritative orders from Supabase
@@ -2668,21 +2722,20 @@ export const adminStore = {
           const primaryKey = k1 || k2;
           if (primaryKey && !seenOrderKeys.has(primaryKey)) {
             seenOrderKeys.add(primaryKey);
-            mergedOrders.push(ro);
-          }
-        }
-
-        // 2. Plus any in-flight local orders placed in last 20 seconds
-        for (const lo of localOrders) {
-          if (!lo) continue;
-          const isJustPlaced = lo.timestamp && Date.now() - lo.timestamp < 20000;
-          if (!isJustPlaced) continue;
-          const k1 = lo.orderNumber ? String(lo.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
-          const k2 = lo.id ? String(lo.id).trim().toLowerCase() : "";
-          const primaryKey = k1 || k2;
-          if (primaryKey && !seenOrderKeys.has(primaryKey)) {
-            seenOrderKeys.add(primaryKey);
-            mergedOrders.push(lo);
+            const mIdx = mergedOrders.findIndex((m) => {
+              const m1 = m.orderNumber ? String(m.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+              const m2 = m.id ? String(m.id).trim().toLowerCase() : "";
+              return (k1 && m1 === k1) || (k2 && m2 === k2);
+            });
+            if (mIdx !== -1) {
+              const cur = mergedOrders[mIdx]!;
+              const lock = getOrderStatusLock(cur.orderNumber) || getOrderStatusLock(cur.id);
+              if (!lock) {
+                mergedOrders[mIdx] = { ...cur, ...ro };
+              }
+            } else {
+              mergedOrders.push(ro);
+            }
           }
         }
       }
@@ -2796,9 +2849,8 @@ export const adminStore = {
       // Merge remote reservations into local state
       const mergedReservations = [...localReservations];
 
-      // For authenticated Admin: directly reflect authoritative remote reservations from Supabase!
+      // For authenticated Admin: ensure all authoritative remote reservations from Supabase are present!
       if (isUserAdmin && isSupabaseConfigured() && Array.isArray(sbReservations)) {
-        mergedReservations.length = 0;
         const seenResKeys = new Set<string>();
 
         // 1. Authoritative reservations from Supabase
@@ -2812,21 +2864,16 @@ export const adminStore = {
           const primaryKey = k1 || k2;
           if (primaryKey && !seenResKeys.has(primaryKey)) {
             seenResKeys.add(primaryKey);
-            mergedReservations.push(rr);
-          }
-        }
-
-        // 2. Plus any in-flight local reservations placed in last 20 seconds
-        for (const lr of localReservations) {
-          if (!lr) continue;
-          const isJustPlaced = lr.timestamp && Date.now() - lr.timestamp < 20000;
-          if (!isJustPlaced) continue;
-          const k1 = lr.reservationNumber ? String(lr.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
-          const k2 = lr.id ? String(lr.id).trim().toLowerCase() : "";
-          const primaryKey = k1 || k2;
-          if (primaryKey && !seenResKeys.has(primaryKey)) {
-            seenResKeys.add(primaryKey);
-            mergedReservations.push(lr);
+            const mIdx = mergedReservations.findIndex((m) => {
+              const m1 = m.reservationNumber ? String(m.reservationNumber).replace(/^#/, "").trim().toLowerCase() : "";
+              const m2 = m.id ? String(m.id).trim().toLowerCase() : "";
+              return (k1 && m1 === k1) || (k2 && m2 === k2);
+            });
+            if (mIdx !== -1) {
+              mergedReservations[mIdx] = { ...mergedReservations[mIdx]!, ...rr };
+            } else {
+              mergedReservations.push(rr);
+            }
           }
         }
       } else {

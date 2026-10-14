@@ -310,7 +310,21 @@ export async function upsertOrderToSupabase(order: AdminOrder): Promise<boolean>
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const row = orderToRow(order);
-      const { error } = await supabase.from("orders").upsert(row, { onConflict: "id" });
+      let { error } = await supabase.from("orders").upsert(row, { onConflict: "id" });
+
+      // If error indicates cancel_token column does not exist in schema cache yet, retry safely without it
+      if (
+        error &&
+        (error.message?.includes("cancel_token") || (error as any).code === "PGRST204")
+      ) {
+        console.warn(
+          "Supabase orders table missing cancel_token column. Retrying order save without cancel_token until migration is applied.",
+        );
+        const { cancel_token: _, ...safeRow } = row as any;
+        const retryRes = await supabase.from("orders").upsert(safeRow, { onConflict: "id" });
+        error = retryRes.error;
+      }
+
       if (error) {
         console.warn(`Supabase save order attempt ${attempt} error:`, error.message);
         if (attempt === maxRetries) return false;
