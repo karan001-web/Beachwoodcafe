@@ -883,7 +883,7 @@ export function OrderTrackerView({
                           <span>Call Cafe</span>
                         </a>
                         <a
-                          href={`https://wa.me/917814485357?text=${encodeURIComponent(
+                          href={`https://wa.me/916589421365?text=${encodeURIComponent(
                             `Hello Beachwood Cafe, I have an urgent question regarding my order #${selectedOrder.orderNumber}.`,
                           )}`}
                           target="_blank"

@@ -418,7 +418,7 @@ const faqItems: FaqItem[] = [
     category: "atmosphere",
     categoryLabel: "Atmosphere & Events",
     answer:
-      "We love hosting celebrations! Groups of up to 6 can reserve directly online. For large parties of 7+, private patio buyouts, birthdays, baby showers, or film wrap dinners, please contact us directly at +917814485357 or kanuvirdi001@gmail.com for tailored prix-fixe menus and dedicated event coordination.",
+      "We love hosting celebrations! Groups of up to 6 can reserve directly online. For large parties of 7+, private patio buyouts, birthdays, baby showers, or film wrap dinners, please contact us directly at +916589421365 or test123@gmail.com for tailored prix-fixe menus and dedicated event coordination.",
     actionText: "Inquire About Events",
     actionType: "contact",
   },

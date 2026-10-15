@@ -240,7 +240,7 @@ export function ReservationModal({ isOpen, onClose }: { isOpen: boolean; onClose
               {/* Action Buttons */}
               <div className="space-y-2 pt-2">
                 <a
-                  href={`https://wa.me/917814485357?text=${encodeURIComponent(
+                  href={`https://wa.me/916589421365?text=${encodeURIComponent(
                     `Hello Beachwood Cafe! 🍽️ I just placed a table booking request:\n\n📋 Booking Ref: #${confirmedResNumber || "CONFIRMED"}\n👤 Guest Name: ${fullName}\n📞 Phone: ${phone}\n📅 Date: ${date}\n⏰ Time: ${time}\n👥 Party: ${partySize}\n🪑 Seating: ${seating}${specialRequests ? `\n📝 Special Requests: ${specialRequests}` : ""}\n\nPlease confirm my table reservation. Thank you!`,
                   )}`}
                   target="_blank"

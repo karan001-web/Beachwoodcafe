@@ -9,12 +9,12 @@ import exterior from "../assets/exterior.webp.asset.json";
 export const site = {
   name: "Beachwood Cafe",
   address: "2695 N Beachwood Dr, Los Angeles, CA 90068",
-  phone: "+917814485357",
-  phoneHref: "tel:+917814485357",
-  whatsappUrl: "https://wa.me/917814485357?text=Hello%20Cafe",
-  email: "kanuvirdi001@gmail.com",
-  emailHref: "mailto:kanuvirdi001@gmail.com",
-  gmailUrl: "https://mail.google.com/mail/?view=cm&fs=1&to=kanuvirdi001@gmail.com",
+  phone: "+916589421365",
+  phoneHref: "tel:+916589421365",
+  whatsappUrl: "https://wa.me/916589421365?text=Hello%20Cafe",
+  email: "test123@gmail.com",
+  emailHref: "mailto:test123@gmail.com",
+  gmailUrl: "https://mail.google.com/mail/?view=cm&fs=1&to=test123@gmail.com",
   orderUrl: "/menu",
   reserveUrl: "https://www.opentable.com/r/beachwood-los-angeles",
   directionsUrl:
