@@ -49,17 +49,17 @@ interface ConfirmedOrder {
   phone: string;
   email: string;
   fulfilmentType: FulfilmentType;
-  deliveryAddress?: string;
-  deliveryApt?: string;
-  deliveryCity?: string;
-  deliveryZip?: string;
-  deliveryNotes?: string;
+  deliveryAddress?: string | undefined;
+  deliveryApt?: string | undefined;
+  deliveryCity?: string | undefined;
+  deliveryZip?: string | undefined;
+  deliveryNotes?: string | undefined;
   includeUtensils: boolean;
   orderNote: string;
   paymentMethod: PaymentMethod;
-  cardLast4?: string;
-  stripePaymentId?: string;
-  stripeStatus?: string;
+  cardLast4?: string | undefined;
+  stripePaymentId?: string | undefined;
+  stripeStatus?: string | undefined;
   items: Array<{ name: string; quantity: number; unitPrice: number; total: number }>;
   subtotal: number;
   discountAmount: number;
@@ -117,12 +117,12 @@ export function CartDrawer() {
 
   // Validation & Processing
   interface CheckoutFormErrors {
-    name?: string;
-    phone?: string;
-    email?: string;
-    deliveryStreet?: string;
-    deliveryZip?: string;
-    cardNumber?: string;
+    name?: string | undefined;
+    phone?: string | undefined;
+    email?: string | undefined;
+    deliveryStreet?: string | undefined;
+    deliveryZip?: string | undefined;
+    cardNumber?: string | undefined;
   }
   const [errors, setErrors] = useState<CheckoutFormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);

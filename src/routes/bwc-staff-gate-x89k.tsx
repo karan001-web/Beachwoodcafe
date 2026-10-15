@@ -1375,7 +1375,7 @@ export function AdminPage() {
             </button>
 
             <button
-              onClick={loadData}
+              onClick={() => loadData(true)}
               className="p-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-[#ede4d5] transition-colors cursor-pointer"
               title="Refresh all data"
             >

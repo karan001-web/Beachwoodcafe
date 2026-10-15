@@ -35,17 +35,17 @@ export interface AdminOrder {
   customerPhone: string;
   customerEmail: string;
   fulfilmentType: "pickup" | "delivery";
-  deliveryAddress?: string;
-  deliveryApt?: string;
-  deliveryCity?: string;
-  deliveryZip?: string;
-  deliveryNotes?: string;
+  deliveryAddress?: string | undefined;
+  deliveryApt?: string | undefined;
+  deliveryCity?: string | undefined;
+  deliveryZip?: string | undefined;
+  deliveryNotes?: string | undefined;
   includeUtensils: boolean;
-  orderNote?: string;
+  orderNote?: string | undefined;
   paymentMethod: "prepay" | "counter";
-  cardLast4?: string;
-  stripePaymentId?: string;
-  stripeStatus?: string;
+  cardLast4?: string | undefined;
+  stripePaymentId?: string | undefined;
+  stripeStatus?: string | undefined;
   items: OrderItem[];
   subtotal: number;
   discountAmount: number;
@@ -639,18 +639,20 @@ export const adminStore = {
 
     if (existingIdx !== -1) {
       const existing = orders[existingIdx];
-      // Update stripe payment details on existing order if provided
-      if (cleanStripeId && (!existing.stripePaymentId || existing.stripePaymentId !== cleanStripeId)) {
-        existing.stripePaymentId = cleanStripeId;
-        if (orderInput.stripeStatus) existing.stripeStatus = orderInput.stripeStatus;
-        safeSetJSON(STORAGE_KEYS.ORDERS, orders);
-        if (isSupabaseConfigured()) {
-          upsertOrderToSupabase(existing).catch((err) =>
-            console.warn("Background Supabase order update:", err),
-          );
+      if (existing) {
+        // Update stripe payment details on existing order if provided
+        if (cleanStripeId && (!existing.stripePaymentId || existing.stripePaymentId !== cleanStripeId)) {
+          existing.stripePaymentId = cleanStripeId;
+          if (orderInput.stripeStatus) existing.stripeStatus = orderInput.stripeStatus;
+          safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+          if (isSupabaseConfigured()) {
+            upsertOrderToSupabase(existing).catch((err) =>
+              console.warn("Background Supabase order update:", err),
+            );
+          }
         }
+        return existing;
       }
-      return existing;
     }
 
     const cancelToken =

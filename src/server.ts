@@ -52,11 +52,39 @@ interface StoredOrder {
   id: string;
   orderNumber: string;
   timestamp: number;
+  placedAt?: string | undefined;
+  customerName?: string | undefined;
+  customerPhone?: string | undefined;
+  customerEmail?: string | undefined;
+  fulfilmentType?: string | undefined;
+  deliveryAddress?: string | undefined;
+  deliveryApt?: string | undefined;
+  deliveryCity?: string | undefined;
+  deliveryZip?: string | undefined;
+  deliveryNotes?: string | undefined;
+  includeUtensils?: boolean | undefined;
+  orderNote?: string | undefined;
+  paymentMethod?: string | undefined;
+  cardLast4?: string | undefined;
+  stripePaymentId?: string | undefined;
+  stripeStatus?: string | undefined;
+  cancelToken?: string | undefined;
+  items?: Array<{ name?: string; quantity?: number; unitPrice?: number; total?: number }> | undefined;
+  subtotal?: number | undefined;
+  discountAmount?: number | undefined;
+  tax?: number | undefined;
+  deliveryFee?: number | undefined;
+  tipAmount?: number | undefined;
+  grandTotal?: number | undefined;
+  promoCode?: string | undefined;
   status?: string | undefined;
   statusUpdatedAt?: number | undefined;
   cancelledBy?: string | undefined;
   cancelledAt?: number | undefined;
   cancellationReason?: string | undefined;
+  cancelled_by?: string | undefined;
+  cancelled_at?: number | undefined;
+  cancellation_reason?: string | undefined;
   [key: string]: any;
 }
 
@@ -64,6 +92,15 @@ interface StoredReservation {
   id: string;
   reservationNumber: string;
   timestamp: number;
+  createdAt?: string | undefined;
+  fullName?: string | undefined;
+  phone?: string | undefined;
+  email?: string | undefined;
+  partySize?: number | string | undefined;
+  date?: string | undefined;
+  time?: string | undefined;
+  seating?: string | undefined;
+  specialRequests?: string | undefined;
   status?: string | undefined;
   [key: string]: any;
 }
@@ -81,6 +118,26 @@ const corsHeaders: Record<string, string> = {
   "access-control-allow-headers": "Content-Type, Authorization",
   "cache-control": "no-store, no-cache, must-revalidate",
 };
+
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      SUPABASE_URL?: string;
+      VITE_SUPABASE_URL?: string;
+      SUPABASE_ANON_KEY?: string;
+      VITE_SUPABASE_ANON_KEY?: string;
+      SUPABASE_SERVICE_ROLE_KEY?: string;
+      SUPABASE_SERVICE_KEY?: string;
+      ADMIN_SESSION_SECRET?: string;
+      ADMIN_USERNAME?: string;
+      ADMIN_PASSWORD_HASH?: string;
+      NODE_ENV?: string;
+      VERCEL_ENV?: string;
+      STRIPE_SECRET_KEY?: string;
+      VITE_STRIPE_SECRET_KEY?: string;
+    }
+  }
+}
 
 const SUPABASE_URL =
   (typeof process !== "undefined" && (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)) ||
@@ -143,6 +200,7 @@ function verifyPassword(password: string, storedHash: string): boolean {
     const parts = storedHash.split(":");
     if (parts.length !== 3) return false;
     const [, salt, expectedKey] = parts;
+    if (!salt || !expectedKey) return false;
     try {
       const derivedKey = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
       const derivedBuf = Buffer.from(derivedKey, "hex");
@@ -523,7 +581,7 @@ function sanitizeOrderForPublic(ord: StoredOrder) {
     tipAmount: ord.tipAmount,
     grandTotal: ord.grandTotal,
     paymentMethod: ord.paymentMethod,
-    items: (ord.items || []).map((it) => ({
+    items: (ord.items || []).map((it: any) => ({
       name: it.name,
       quantity: it.quantity,
       unitPrice: it.unitPrice,
@@ -711,12 +769,12 @@ async function updateOrderStatusInSupabaseServer(
   identifier: string,
   status: string,
   extra?: {
-    orderId?: string;
-    orderNumber?: string;
-    statusUpdatedAt?: number;
-    cancelledBy?: string;
-    cancelledAt?: number;
-    cancellationReason?: string;
+    orderId?: string | undefined;
+    orderNumber?: string | undefined;
+    statusUpdatedAt?: number | undefined;
+    cancelledBy?: string | undefined;
+    cancelledAt?: number | undefined;
+    cancellationReason?: string | undefined;
   },
 ) {
   const serverKey = getSupabaseServerKey();
@@ -726,9 +784,9 @@ async function updateOrderStatusInSupabaseServer(
       status,
       status_updated_at: extra?.statusUpdatedAt || Date.now(),
     };
-    if (extra?.cancelledBy !== undefined) patchPayload.cancelled_by = extra.cancelledBy;
-    if (extra?.cancelledAt !== undefined) patchPayload.cancelled_at = extra.cancelledAt;
-    if (extra?.cancellationReason !== undefined) patchPayload.cancellation_reason = extra.cancellationReason;
+    if (extra?.cancelledBy !== undefined) patchPayload["cancelled_by"] = extra.cancelledBy;
+    if (extra?.cancelledAt !== undefined) patchPayload["cancelled_at"] = extra.cancelledAt;
+    if (extra?.cancellationReason !== undefined) patchPayload["cancellation_reason"] = extra.cancellationReason;
 
     const terms = new Set<string>();
     const addTerm = (v?: string) => {

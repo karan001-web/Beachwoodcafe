@@ -74,13 +74,13 @@ const DEFAULT_SUPABASE_URL = "https://pzsdtlnbetfvrzfkphep.supabase.co";
 const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_uscZ4Khg7Arye1PKQvpCBg_BP4J0Fgl";
 
 const rawSupabaseUrl =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
+  (typeof import.meta !== "undefined" && import.meta.env?.["VITE_SUPABASE_URL"]) ||
   getEnvVar("VITE_SUPABASE_URL") ||
   getEnvVar("SUPABASE_URL") ||
   DEFAULT_SUPABASE_URL;
 
 const rawSupabaseAnonKey =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
+  (typeof import.meta !== "undefined" && import.meta.env?.["VITE_SUPABASE_ANON_KEY"]) ||
   getEnvVar("VITE_SUPABASE_ANON_KEY") ||
   getEnvVar("SUPABASE_ANON_KEY") ||
   DEFAULT_SUPABASE_ANON_KEY;
@@ -405,7 +405,7 @@ export async function updateOrderStatusInSupabase(
 
 export async function deleteOrderFromSupabase(
   identifier: string,
-  extra?: { orderId?: string; orderNumber?: string },
+  extra?: { orderId?: string | undefined; orderNumber?: string | undefined },
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
@@ -537,7 +537,7 @@ export async function updateReservationStatusInSupabase(
 
 export async function deleteReservationFromSupabase(
   identifier: string,
-  extra?: { resId?: string; reservationNumber?: string },
+  extra?: { resId?: string | undefined; reservationNumber?: string | undefined },
 ): Promise<boolean> {
   if (!supabase) return false;
   try {
@@ -645,12 +645,12 @@ export function subscribeToSupabaseRealtime(callbacks: {
   try {
     const channel = supabase
       .channel("beachwood-cafe-live-sync")
-      .on("broadcast", { event: "order_deleted" }, (payload) => {
+      .on("broadcast", { event: "order_deleted" }, (payload: { payload?: { orderId?: string; orderNumber?: string } }) => {
         if (callbacks.onOrderDeleted && payload?.payload) {
           callbacks.onOrderDeleted(payload.payload.orderId, payload.payload.orderNumber);
         }
       })
-      .on("broadcast", { event: "reservation_deleted" }, (payload) => {
+      .on("broadcast", { event: "reservation_deleted" }, (payload: { payload?: { resId?: string; reservationNumber?: string } }) => {
         if (callbacks.onReservationDeleted && payload?.payload) {
           callbacks.onReservationDeleted(payload.payload.resId, payload.payload.reservationNumber);
         }
