@@ -65,7 +65,81 @@ export const Route = createFileRoute("/bwc-staff-gate-x89k")({
     ],
   }),
   component: AdminPage,
+  errorComponent: StaffPortalErrorFallback,
 });
+
+function StaffPortalErrorFallback({ error, reset }: { error: unknown; reset: () => void }) {
+  const handleClearCacheAndReset = () => {
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.clear();
+        localStorage.removeItem("bwc_admin_orders_v1");
+        localStorage.removeItem("bwc_admin_reservations_v1");
+        localStorage.removeItem("bwc_visitor_logs_v1");
+        localStorage.removeItem("bwc_whatsapp_logs_v1");
+        localStorage.removeItem("bwc_admin_notifications_v1");
+        localStorage.removeItem("bwc_unviewed_order_ids_v1");
+        localStorage.removeItem("bwc_unviewed_booking_ids_v1");
+        window.location.reload();
+      }
+    } catch {}
+  };
+
+  const errorMessage =
+    error instanceof Error ? error.message : String(error || "Unknown portal error");
+
+  return (
+    <div className="min-h-screen bg-[#141d2b] flex items-center justify-center p-4 text-[#191918]">
+      <div className="w-full max-w-lg bg-[#ede4d5] rounded-2xl shadow-2xl border-2 border-[#d99214] p-6 sm:p-8 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-xl bg-amber-500/20 text-[#1a3b6b]">
+            <ShieldCheck className="size-6 text-[#d99214]" />
+          </div>
+          <div>
+            <span className="text-[0.65rem] font-black uppercase tracking-widest text-[#d99214]">
+              Beachwood Cafe Staff Portal
+            </span>
+            <h2 className="font-display text-xl font-bold text-[#1a3b6b]">
+              Portal Safe Recovery Mode
+            </h2>
+          </div>
+        </div>
+
+        <p className="text-xs text-[#595347] leading-relaxed">
+          The portal encountered a local data issue or temporary connection conflict. You can recover immediately by refreshing or clearing corrupted local cache.
+        </p>
+
+        <div className="p-3 rounded-xl bg-white border border-[#c9bba6] text-xs font-mono text-red-700 break-words">
+          {errorMessage}
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-2">
+          <button
+            onClick={() => {
+              reset();
+              if (typeof window !== "undefined") window.location.reload();
+            }}
+            className="flex-1 py-2.5 px-4 rounded-xl bg-[#1a3b6b] hover:bg-[#132c52] text-white text-xs font-bold transition-all cursor-pointer text-center"
+          >
+            Try Again
+          </button>
+          <button
+            onClick={handleClearCacheAndReset}
+            className="flex-1 py-2.5 px-4 rounded-xl bg-[#d99214] hover:bg-[#c2800e] text-[#191918] text-xs font-extrabold transition-all cursor-pointer text-center"
+          >
+            Clear Cache & Reload
+          </button>
+        </div>
+
+        <div className="text-center pt-2">
+          <a href="/" className="text-xs text-[#1a3b6b] hover:underline font-semibold">
+            ← Return to Beachwood Cafe Website
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type TabType = "overview" | "orders" | "reservations" | "visitors" | "whatsapp";
 
@@ -73,24 +147,24 @@ type ResWhatsAppTemplate =
   "confirmed" | "seated" | "completed" | "cancelled" | "reminder" | "custom";
 
 // Helper: Clean phone number digits
-function cleanPhoneDigits(phone: string): string {
-  return phone.replace(/[^0-9]/g, "");
+function cleanPhoneDigits(phone?: string): string {
+  return String(phone || "").replace(/[^0-9]/g, "");
 }
 
 // Helper: Format phone number for WhatsApp link
 function formatWhatsAppTargetPhone(
-  rawPhone: string,
-  codeChoice: "auto" | "1" | "91" | "custom",
+  rawPhone?: string,
+  codeChoice: "auto" | "1" | "91" | "custom" = "auto",
   customDigits?: string,
 ): string {
   if (codeChoice === "custom" && customDigits) {
-    return customDigits.replace(/[^0-9]/g, "");
+    return String(customDigits).replace(/[^0-9]/g, "");
   }
 
-  const rawClean = rawPhone.replace(/[^0-9]/g, "");
+  const rawClean = String(rawPhone || "").replace(/[^0-9]/g, "");
   if (!rawClean) return "";
 
-  if (rawPhone.trim().startsWith("+")) {
+  if (String(rawPhone || "").trim().startsWith("+")) {
     return rawClean;
   }
 
@@ -182,7 +256,7 @@ ${cafeName} Team`;
   }
 }
 
-export function AdminPage() {
+function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabType>("overview");
 
@@ -196,15 +270,15 @@ export function AdminPage() {
   // Store data state
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [reservations, setReservations] = useState<AdminReservation[]>([]);
-  const [visitorAnalytics, setVisitorAnalytics] = useState(adminStore.getVisitorAnalytics());
-  const [whatsAppAnalytics, setWhatsAppAnalytics] = useState(adminStore.getWhatsAppAnalytics());
+  const [visitorAnalytics, setVisitorAnalytics] = useState(() => adminStore.getVisitorAnalytics());
+  const [whatsAppAnalytics, setWhatsAppAnalytics] = useState(() => adminStore.getWhatsAppAnalytics());
 
   // Site Operational Status (Maintenance / Kill Switch)
   const [maintenanceConfig, setMaintenanceConfig] = useState(() =>
     adminStore.getMaintenanceConfig(),
   );
   const [customMaintenanceMsg, setCustomMaintenanceMsg] = useState(
-    () => adminStore.getMaintenanceConfig().message,
+    () => adminStore.getMaintenanceConfig().message || "",
   );
   const [showEditMsg, setShowEditMsg] = useState<boolean>(false);
 
@@ -636,7 +710,7 @@ export function AdminPage() {
   };
 
   const unreadCount = useMemo(() => {
-    return notifications.filter((n) => !n.read).length;
+    return (notifications || []).filter((n) => n && !n.read).length;
   }, [notifications]);
 
   // Toggle Website Online / Offline (Kill Switch)
@@ -956,49 +1030,58 @@ export function AdminPage() {
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {
-    return orders.filter((o) => {
+    return (orders || []).filter((o) => {
+      if (!o) return false;
       const matchStatus = orderStatusFilter === "all" || o.status === orderStatusFilter;
-      const q = orderSearch.toLowerCase().trim();
+      const q = (orderSearch || "").toLowerCase().trim();
       const matchQuery =
         !q ||
-        o.orderNumber.toLowerCase().includes(q) ||
-        o.customerName.toLowerCase().includes(q) ||
-        o.customerPhone.includes(q) ||
-        o.customerEmail.toLowerCase().includes(q);
+        (o.orderNumber && String(o.orderNumber).toLowerCase().includes(q)) ||
+        (o.customerName && String(o.customerName).toLowerCase().includes(q)) ||
+        (o.customerPhone && String(o.customerPhone).includes(q)) ||
+        (o.customerEmail && String(o.customerEmail).toLowerCase().includes(q));
       return matchStatus && matchQuery;
     });
   }, [orders, orderStatusFilter, orderSearch]);
 
   // Filtered Reservations
   const filteredReservations = useMemo(() => {
-    return reservations.filter((r) => {
+    return (reservations || []).filter((r) => {
+      if (!r) return false;
       const matchStatus = resStatusFilter === "all" || r.status === resStatusFilter;
-      const q = resSearch.toLowerCase().trim();
+      const q = (resSearch || "").toLowerCase().trim();
       const matchQuery =
         !q ||
-        r.reservationNumber.toLowerCase().includes(q) ||
-        r.fullName.toLowerCase().includes(q) ||
-        r.phone.includes(q) ||
-        r.email.toLowerCase().includes(q);
+        (r.reservationNumber && String(r.reservationNumber).toLowerCase().includes(q)) ||
+        (r.fullName && String(r.fullName).toLowerCase().includes(q)) ||
+        (r.phone && String(r.phone).includes(q)) ||
+        (r.email && String(r.email).toLowerCase().includes(q));
       return matchStatus && matchQuery;
     });
   }, [reservations, resStatusFilter, resSearch]);
 
   // Aggregate Metrics
   const totalRevenue = useMemo(() => {
-    return orders.reduce((sum, o) => (o.status !== "cancelled" ? sum + o.grandTotal : sum), 0);
+    return (orders || []).reduce((sum, o) => {
+      if (!o || o.status === "cancelled") return sum;
+      const val =
+        typeof o.grandTotal === "number" ? o.grandTotal : parseFloat(String(o.grandTotal || 0));
+      return sum + (isNaN(val) ? 0 : val);
+    }, 0);
   }, [orders]);
 
-  const pendingOrdersCount = orders.filter((o) => o.status === "pending").length;
-  const inKitchenCount = orders.filter((o) => o.status === "kitchen").length;
-  const readyOrdersCount = orders.filter((o) => o.status === "ready").length;
+  const pendingOrdersCount = (orders || []).filter((o) => o && o.status === "pending").length;
+  const inKitchenCount = (orders || []).filter((o) => o && o.status === "kitchen").length;
+  const readyOrdersCount = (orders || []).filter((o) => o && o.status === "ready").length;
 
-  const unviewedOrdersCount = unviewedOrderIds.length;
-  const unviewedBookingsCount = unviewedBookingIds.length;
+  const unviewedOrdersCount = (unviewedOrderIds || []).length;
+  const unviewedBookingsCount = (unviewedBookingIds || []).length;
 
   const totalGuestsBooked = useMemo(() => {
-    return reservations.reduce((sum, r) => {
-      const num = parseInt(r.partySize.replace(/[^0-9]/g, ""), 10) || 2;
+    return (reservations || []).reduce((sum, r) => {
+      if (!r) return sum;
+      const partyStr = typeof r.partySize === "string" ? r.partySize : String(r.partySize || "2");
+      const num = parseInt(partyStr.replace(/[^0-9]/g, ""), 10) || 2;
       return sum + num;
     }, 0);
   }, [reservations]);
@@ -1642,11 +1725,11 @@ export function AdminPage() {
             </div>
             <div className="mt-2">
               <span className="font-display text-2xl sm:text-3xl font-bold text-[#16a34a]">
-                {whatsAppAnalytics.totalClicks}
+                {whatsAppAnalytics?.totalClicks || 0}
               </span>
               <div className="flex items-center gap-2 mt-1 text-xs text-[#595347]">
                 <span className="font-bold text-[#191918]">
-                  {Object.keys(whatsAppAnalytics.sourceCounts).length} click sources
+                  {Object.keys(whatsAppAnalytics?.sourceCounts || {}).length} click sources
                 </span>
               </div>
             </div>
@@ -2064,10 +2147,10 @@ export function AdminPage() {
                             </span>
                           </td>
                           <td className="py-3 text-[#595347]">
-                            {ord.items.reduce((s, i) => s + i.quantity, 0)} dishes
+                            {(ord.items || []).reduce((s, i) => s + (Number(i?.quantity) || 0), 0)} dishes
                           </td>
                           <td className="py-3 font-bold text-[#191918]">
-                            ${ord.grandTotal.toFixed(2)}
+                            ${(Number(ord.grandTotal) || 0).toFixed(2)}
                           </td>
                           <td className="py-3">
                             {ord.status === "cancelled" ? (
@@ -2369,15 +2452,15 @@ export function AdminPage() {
                         {/* Items Summary */}
                         <div className="mt-3 pt-2.5 border-t border-[#1a3b6b]/10 space-y-1 text-xs">
                           <span className="text-[0.68rem] font-bold uppercase tracking-wider text-[#767064]">
-                            Dishes ({ord.items.reduce((s, i) => s + i.quantity, 0)})
+                            Dishes ({(ord.items || []).reduce((s, i) => s + (Number(i?.quantity) || 0), 0)})
                           </span>
-                          {ord.items.map((it, idx) => (
+                          {(ord.items || []).map((it, idx) => (
                             <div key={idx} className="flex justify-between text-[#595347]">
                               <span>
                                 {it.quantity}x {it.name}
                               </span>
                               <span className="font-semibold text-[#191918]">
-                                ${it.total.toFixed(2)}
+                                ${(Number(it.total) || 0).toFixed(2)}
                               </span>
                             </div>
                           ))}
@@ -2391,7 +2474,7 @@ export function AdminPage() {
                             {ord.paymentMethod === "prepay" ? "Prepaid (Card)" : "Pay at counter"}
                           </span>
                           <span className="font-display text-lg font-bold text-[#1a3b6b]">
-                            ${ord.grandTotal.toFixed(2)}
+                            ${(Number(ord.grandTotal) || 0).toFixed(2)}
                           </span>
                         </div>
 
@@ -2748,10 +2831,10 @@ export function AdminPage() {
                 Traffic by Page / Route
               </h3>
               <div className="space-y-3">
-                {Object.entries(visitorAnalytics.pageCounts).map(([route, count]) => {
+                {Object.entries(visitorAnalytics?.pageCounts || {}).map(([route, count]) => {
                   const percentage =
-                    visitorAnalytics.totalViews > 0
-                      ? Math.round((count / visitorAnalytics.totalViews) * 100)
+                    (visitorAnalytics?.totalViews || 0) > 0
+                      ? Math.round((count / (visitorAnalytics?.totalViews || 1)) * 100)
                       : 0;
 
                   return (
@@ -2797,7 +2880,7 @@ export function AdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#1a3b6b]/10">
-                    {visitorAnalytics.logs.slice(0, 20).map((log) => (
+                    {(visitorAnalytics?.logs || []).slice(0, 20).map((log) => (
                       <tr key={log.id} className="hover:bg-[#fdfbf7]">
                         <td className="py-2.5 text-[#595347] font-mono">{log.timeFormatted}</td>
                         <td className="py-2.5 font-bold text-[#1a3b6b]">{log.path}</td>
@@ -2848,10 +2931,10 @@ export function AdminPage() {
                 Clicks Breakdown by Button Location
               </h3>
               <div className="space-y-3">
-                {Object.entries(whatsAppAnalytics.sourceCounts).map(([source, count]) => {
+                {Object.entries(whatsAppAnalytics?.sourceCounts || {}).map(([source, count]) => {
                   const pct =
-                    whatsAppAnalytics.totalClicks > 0
-                      ? Math.round((count / whatsAppAnalytics.totalClicks) * 100)
+                    (whatsAppAnalytics?.totalClicks || 0) > 0
+                      ? Math.round((count / (whatsAppAnalytics?.totalClicks || 1)) * 100)
                       : 0;
 
                   return (
@@ -2890,7 +2973,7 @@ export function AdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#1a3b6b]/10">
-                    {whatsAppAnalytics.logs.map((log) => (
+                    {(whatsAppAnalytics?.logs || []).map((log) => (
                       <tr key={log.id} className="hover:bg-[#fdfbf7]">
                         <td className="py-2.5 text-[#595347] font-mono">{log.timeFormatted}</td>
                         <td className="py-2.5 font-bold text-[#16a34a]">{log.source}</td>
@@ -3005,12 +3088,14 @@ export function AdminPage() {
                 Itemized Dishes
               </span>
               <div className="divide-y divide-[#1a3b6b]/10">
-                {selectedOrder.items.map((it, idx) => (
+                {(selectedOrder.items || []).map((it, idx) => (
                   <div key={idx} className="py-1.5 flex justify-between">
                     <span className="font-medium text-[#191918]">
                       {it.quantity}x {it.name}
                     </span>
-                    <span className="font-bold text-[#1a3b6b]">${it.total.toFixed(2)}</span>
+                    <span className="font-bold text-[#1a3b6b]">
+                      ${(Number(it.total) || 0).toFixed(2)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -3020,34 +3105,34 @@ export function AdminPage() {
             <div className="pt-2 border-t border-[#1a3b6b]/15 space-y-1 text-xs text-[#595347]">
               <div className="flex justify-between">
                 <span>Subtotal</span>
-                <span>${selectedOrder.subtotal.toFixed(2)}</span>
+                <span>${(Number(selectedOrder.subtotal) || 0).toFixed(2)}</span>
               </div>
-              {selectedOrder.discountAmount > 0 && (
+              {(Number(selectedOrder.discountAmount) || 0) > 0 && (
                 <div className="flex justify-between text-[#16a34a]">
                   <span>Discount</span>
-                  <span>-${selectedOrder.discountAmount.toFixed(2)}</span>
+                  <span>-${(Number(selectedOrder.discountAmount) || 0).toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between">
                 <span>LA Tax (9.5%)</span>
-                <span>${selectedOrder.tax.toFixed(2)}</span>
+                <span>${(Number(selectedOrder.tax) || 0).toFixed(2)}</span>
               </div>
-              {selectedOrder.deliveryFee > 0 && (
+              {(Number(selectedOrder.deliveryFee) || 0) > 0 && (
                 <div className="flex justify-between">
                   <span>Delivery Fee</span>
-                  <span>${selectedOrder.deliveryFee.toFixed(2)}</span>
+                  <span>${(Number(selectedOrder.deliveryFee) || 0).toFixed(2)}</span>
                 </div>
               )}
-              {selectedOrder.tipAmount > 0 && (
+              {(Number(selectedOrder.tipAmount) || 0) > 0 && (
                 <div className="flex justify-between">
                   <span>Staff Tip</span>
-                  <span>${selectedOrder.tipAmount.toFixed(2)}</span>
+                  <span>${(Number(selectedOrder.tipAmount) || 0).toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between font-bold text-sm text-[#1a3b6b] pt-1 border-t border-[#1a3b6b]/10">
                 <span>Grand Total</span>
                 <span className="font-display text-base">
-                  ${selectedOrder.grandTotal.toFixed(2)}
+                  ${(Number(selectedOrder.grandTotal) || 0).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between items-center text-xs pt-1.5 border-t border-[#1a3b6b]/10">

@@ -230,12 +230,25 @@ const DEFAULT_CREDS = {
   passwordHash: "75ca0ab7b09a1603ef1c83b8c2d1de3acb078b9c92824803e156016f97948b3f",
 };
 
-// Helper: Safely get from localStorage
+// Helper: Safely get from localStorage with strict fallback validation
 function safeGetJSON<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    if (!raw || raw === "undefined" || raw === "null" || raw.trim() === "") {
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed === null || parsed === undefined) {
+      return fallback;
+    }
+    if (Array.isArray(fallback)) {
+      return (Array.isArray(parsed) ? parsed : fallback) as T;
+    }
+    if (typeof fallback === "object" && fallback !== null) {
+      return (typeof parsed === "object" && !Array.isArray(parsed) ? parsed : fallback) as T;
+    }
+    return parsed as T;
   } catch (e) {
     console.error(`Error reading ${key} from storage:`, e);
     return fallback;
@@ -652,7 +665,16 @@ export const adminStore = {
   // 1B. SITE STATUS / MAINTENANCE MODE TOGGLE
   // --------------------------------------------------------------------------
   getMaintenanceConfig(): MaintenanceConfig {
-    return safeGetJSON<MaintenanceConfig>(STORAGE_KEYS.MAINTENANCE, DEFAULT_MAINTENANCE);
+    const cfg = safeGetJSON<MaintenanceConfig>(STORAGE_KEYS.MAINTENANCE, DEFAULT_MAINTENANCE);
+    if (!cfg || typeof cfg !== "object") return DEFAULT_MAINTENANCE;
+    return {
+      enabled: Boolean(cfg.enabled),
+      message:
+        typeof cfg.message === "string" && cfg.message.trim()
+          ? cfg.message
+          : DEFAULT_MAINTENANCE.message,
+      updatedAt: cfg.updatedAt || "",
+    };
   },
 
   setMaintenanceMode(enabled: boolean, message?: string): MaintenanceConfig {
@@ -674,7 +696,10 @@ export const adminStore = {
   // --------------------------------------------------------------------------
   getOrders(): AdminOrder[] {
     const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
-    return orders.sort((a, b) => b.timestamp - a.timestamp);
+    if (!Array.isArray(orders)) return [];
+    return orders
+      .filter((o) => o && typeof o === "object")
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
   },
 
   addOrder(orderInput: Omit<AdminOrder, "id" | "timestamp" | "status">): AdminOrder {
@@ -1789,7 +1814,10 @@ export const adminStore = {
   // --------------------------------------------------------------------------
   getReservations(): AdminReservation[] {
     const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
-    return reservations.sort((a, b) => b.timestamp - a.timestamp);
+    if (!Array.isArray(reservations)) return [];
+    return reservations
+      .filter((r) => r && typeof r === "object")
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
   },
 
   addReservation(
@@ -2059,20 +2087,27 @@ export const adminStore = {
   },
 
   getVisitorAnalytics() {
-    const logs = safeGetJSON<VisitorLog[]>(STORAGE_KEYS.VISITOR_LOGS, []);
-    const rawTotalViews = parseInt(
-      (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEYS.VISITOR_COUNT)) || "0",
-      10,
-    );
-    const totalViews = Math.max(rawTotalViews, logs.length);
+    const rawLogs = safeGetJSON<VisitorLog[]>(STORAGE_KEYS.VISITOR_LOGS, []);
+    const logs = Array.isArray(rawLogs)
+      ? rawLogs.filter((l) => l && typeof l === "object")
+      : [];
+    let rawTotalViews = 0;
+    try {
+      rawTotalViews = parseInt(
+        (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEYS.VISITOR_COUNT)) || "0",
+        10,
+      );
+    } catch {}
+    const totalViews = Math.max(isNaN(rawTotalViews) ? 0 : rawTotalViews, logs.length);
 
     // Unique visitors set
-    const uniqueIds = new Set(logs.map((l) => l.visitorId));
+    const uniqueIds = new Set(logs.map((l) => (l && l.visitorId) || "anon"));
     const uniqueVisitors = Math.max(uniqueIds.size, totalViews > 0 ? 1 : 0);
 
     // Page view counts
     const pageCounts: Record<string, number> = {};
     logs.forEach((l) => {
+      if (!l) return;
       const key = l.path || "/";
       pageCounts[key] = (pageCounts[key] || 0) + 1;
     });
@@ -2080,19 +2115,30 @@ export const adminStore = {
     // Device counts
     const deviceCounts = { desktop: 0, mobile: 0, tablet: 0 };
     logs.forEach((l) => {
-      if (deviceCounts[l.device] !== undefined) {
-        deviceCounts[l.device]++;
+      if (!l) return;
+      const dev = l.device;
+      if (dev && deviceCounts[dev] !== undefined) {
+        deviceCounts[dev]++;
       } else {
         deviceCounts.desktop++;
       }
     });
 
+    const topPages = Object.entries(pageCounts)
+      .map(([path, count]) => ({ path, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
     return {
       totalViews,
+      totalPageViews: totalViews,
       uniqueVisitors,
       logs: logs.slice(0, 50),
+      recentLogs: logs.slice(0, 10),
       pageCounts,
+      topPages,
       deviceCounts,
+      devices: deviceCounts,
     };
   },
 
@@ -2130,10 +2176,14 @@ export const adminStore = {
   },
 
   getWhatsAppAnalytics() {
-    const logs = safeGetJSON<WhatsAppClickLog[]>(STORAGE_KEYS.WHATSAPP_LOGS, []);
+    const rawLogs = safeGetJSON<WhatsAppClickLog[]>(STORAGE_KEYS.WHATSAPP_LOGS, []);
+    const logs = Array.isArray(rawLogs)
+      ? rawLogs.filter((l) => l && typeof l === "object")
+      : [];
     const sourceCounts: Record<string, number> = {};
 
     logs.forEach((l) => {
+      if (!l) return;
       const src = l.source || "General WhatsApp";
       sourceCounts[src] = (sourceCounts[src] || 0) + 1;
     });
@@ -2504,7 +2554,10 @@ export const adminStore = {
   // --------------------------------------------------------------------------
   getNotifications(): AdminNotification[] {
     const notifs = safeGetJSON<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
-    return notifs.sort((a, b) => b.timestamp - a.timestamp);
+    if (!Array.isArray(notifs)) return [];
+    return notifs
+      .filter((n) => n && typeof n === "object")
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
   },
 
   addNotification(
@@ -2565,13 +2618,16 @@ export const adminStore = {
   // --------------------------------------------------------------------------
   getUnviewedOrderIds(): string[] {
     const raw = safeGetJSON<string[]>(STORAGE_KEYS.UNVIEWED_ORDER_IDS, []);
-    const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+    if (!Array.isArray(raw)) return [];
+    const orders = this.getOrders();
     const validKeys = new Set<string>();
     for (const o of orders) {
-      if (o.orderNumber) validKeys.add(o.orderNumber.replace(/^#/, "").trim().toLowerCase());
-      if (o.id) validKeys.add(o.id.trim().toLowerCase());
+      if (!o) continue;
+      if (o.orderNumber) validKeys.add(String(o.orderNumber).replace(/^#/, "").trim().toLowerCase());
+      if (o.id) validKeys.add(String(o.id).trim().toLowerCase());
     }
     const filtered = raw.filter((id) => {
+      if (!id) return false;
       const clean = String(id).replace(/^#/, "").trim().toLowerCase();
       return validKeys.has(clean);
     });
@@ -2643,14 +2699,17 @@ export const adminStore = {
 
   getUnviewedReservationIds(): string[] {
     const raw = safeGetJSON<string[]>(STORAGE_KEYS.UNVIEWED_BOOKING_IDS, []);
-    const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    if (!Array.isArray(raw)) return [];
+    const reservations = this.getReservations();
     const validKeys = new Set<string>();
     for (const r of reservations) {
+      if (!r) continue;
       if (r.reservationNumber)
-        validKeys.add(r.reservationNumber.replace(/^#/, "").trim().toLowerCase());
-      if (r.id) validKeys.add(r.id.trim().toLowerCase());
+        validKeys.add(String(r.reservationNumber).replace(/^#/, "").trim().toLowerCase());
+      if (r.id) validKeys.add(String(r.id).trim().toLowerCase());
     }
     const filtered = raw.filter((id) => {
+      if (!id) return false;
       const clean = String(id).replace(/^#/, "").trim().toLowerCase();
       return validKeys.has(clean);
     });
