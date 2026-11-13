@@ -1304,17 +1304,71 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
       inputToken = url.searchParams.get("token") || url.searchParams.get("cancelToken") || "";
       inputPhone = url.searchParams.get("phone") || "";
     } else if (request.method === "POST") {
+      let body: any = null;
       try {
-        const body = await request.json();
-        queryOrder = String(body?.order || body?.orderNumber || body?.id || "").trim();
-        inputToken = String(body?.token || body?.cancelToken || "").trim();
-        inputPhone = String(body?.phone || "").trim();
+        body = await request.json();
       } catch {
         return new Response(
           JSON.stringify({ success: false, error: "Invalid JSON payload" }),
           { status: 400, headers: corsHeaders },
         );
       }
+
+      // Batch tracking for customer devices (syncing recent order history)
+      if (Array.isArray(body?.orders)) {
+        if (serverOrders.length === 0) {
+          const remote = await fetchOrdersFromSupabaseServer();
+          if (remote.length > 0) serverOrders = remote;
+        }
+
+        const isStaff = isStaffAuthenticated(request);
+        const results: StoredOrder[] = [];
+
+        for (const item of (body.orders as Array<any>).slice(0, 25)) {
+          const rawOrd = typeof item === "string" ? item : item?.order || item?.orderNumber || item?.id || "";
+          const rawToken = typeof item === "object" ? item?.token || item?.cancelToken || "" : "";
+          const cleanQ = String(rawOrd).trim().replace(/^#/, "").toLowerCase();
+          if (!cleanQ || serverDeletedOrderIds.has(cleanQ)) continue;
+
+          let ord = serverOrders.find((o) => {
+            if (!o) return false;
+            const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+            const oId = String(o.id || "").trim().toLowerCase();
+            return oNum === cleanQ || oId === cleanQ;
+          });
+
+          if (!ord) {
+            const remote = await fetchOrdersFromSupabaseServer();
+            if (remote.length > 0) {
+              serverOrders = remote;
+              ord = serverOrders.find((o) => {
+                if (!o) return false;
+                const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+                const oId = String(o.id || "").trim().toLowerCase();
+                return oNum === cleanQ || oId === cleanQ;
+              });
+            }
+          }
+
+          if (ord) {
+            const tokenMatch = Boolean(rawToken && ord.cancelToken && rawToken === ord.cancelToken);
+            if (isStaff || tokenMatch) {
+              results.push(ord);
+            } else {
+              results.push(sanitizeOrderForPublic(ord));
+            }
+          }
+        }
+
+        return new Response(
+          JSON.stringify({ success: true, verified: true, orders: results }),
+          { status: 200, headers: corsHeaders },
+        );
+      }
+
+      queryOrder = String(body?.order || body?.orderNumber || body?.id || "").trim();
+      inputToken = String(body?.token || body?.cancelToken || "").trim();
+      inputPhone = String(body?.phone || "").trim();
     } else {
       return new Response(null, { status: 405, headers: corsHeaders });
     }

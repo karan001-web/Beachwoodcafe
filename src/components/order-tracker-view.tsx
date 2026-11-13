@@ -290,10 +290,13 @@ export function OrderTrackerView({
       })
       .catch(() => {});
 
-    // Background sync poller every 10s
+    // Background sync poller every 4s for rapid cross-device responsiveness
     const pollInterval = setInterval(async () => {
       try {
         await adminStore.syncWithServer();
+        const recents = adminStore.getCustomerRecentOrders();
+        setRecentOrders(recents);
+
         const current = selectedOrderRef.current;
         if (current) {
           const isDeleted =
@@ -313,13 +316,12 @@ export function OrderTrackerView({
           } else if (!refreshed) {
             setSelectedOrder(null);
             setTargetOrderNumber(null);
-            setRecentOrders(adminStore.getCustomerRecentOrders());
           }
         }
       } catch {
         // silent catch
       }
-    }, 10000);
+    }, 4000);
 
     const handleOrderChange = (e?: any) => {
       const changedOrderNum = e?.detail?.orderNumber;
@@ -731,6 +733,15 @@ export function OrderTrackerView({
                       setSelectedOrder(ord);
                       setCancelFeedback(null);
                       setSearchError("");
+                      // Check cloud server for any live status changes
+                      if (ord.orderNumber) {
+                        adminStore.lookupOrder(ord.orderNumber).then((latest) => {
+                          if (latest) {
+                            setSelectedOrder(latest);
+                            setRecentOrders(adminStore.getCustomerRecentOrders());
+                          }
+                        }).catch(() => {});
+                      }
                     }}
                     className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${
                       isSelected

@@ -336,7 +336,10 @@ function publishCloudEvent(type: string, payload: any) {
     fetch(`https://ntfy.sh/${CLOUD_SYNC_TOPIC}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, payload: wrappedPayload, senderId: CLIENT_SESSION_ID }),
+      body: JSON.stringify({
+        topic: CLOUD_SYNC_TOPIC,
+        message: JSON.stringify({ type, payload: wrappedPayload, senderId: CLIENT_SESSION_ID }),
+      }),
     }).catch(() => {});
   } catch {
     // broadcast network error ignored
@@ -1337,6 +1340,106 @@ export const adminStore = {
     }
 
     return result.sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
+  },
+
+  // Customer order history refresh from server (cross-device status sync)
+  async refreshCustomerOrders(targetQuery?: string): Promise<AdminOrder[]> {
+    if (typeof window === "undefined") return [];
+    const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+    const ordersToQuerySet = new Set<string>();
+
+    for (const id of customerOrderIds) {
+      if (id && id.trim()) ordersToQuerySet.add(id.trim());
+    }
+    if (targetQuery && targetQuery.trim()) {
+      ordersToQuerySet.add(targetQuery.trim());
+    }
+
+    if (ordersToQuerySet.size === 0) {
+      return this.getCustomerRecentOrders();
+    }
+
+    const customerTokens = safeGetJSON<Record<string, string>>(
+      STORAGE_KEYS.CUSTOMER_ORDER_TOKENS,
+      {},
+    );
+
+    const ordersToQuery = Array.from(ordersToQuerySet).slice(0, 20).map((id) => ({
+      order: id,
+      token:
+        customerTokens[id] ||
+        customerTokens[id.replace(/^#/, "")] ||
+        customerTokens[`#${id.replace(/^#/, "")}`] ||
+        "",
+    }));
+
+    try {
+      const res = await fetch("/api/orders/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orders: ordersToQuery }),
+      });
+
+      if (!res.ok) return this.getCustomerRecentOrders();
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data?.orders)) return this.getCustomerRecentOrders();
+
+      const remoteOrders: AdminOrder[] = data.orders;
+      const localOrders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+      let hasChanges = false;
+
+      for (const remote of remoteOrders) {
+        if (!remote) continue;
+        const cleanRemoteNum = String(remote.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+        const cleanRemoteId = String(remote.id || "").trim().toLowerCase();
+
+        const idx = localOrders.findIndex((o) => {
+          if (!o) return false;
+          const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+          const oId = String(o.id || "").trim().toLowerCase();
+          return (cleanRemoteNum && oNum === cleanRemoteNum) || (cleanRemoteId && oId === cleanRemoteId);
+        });
+
+        if (idx !== -1) {
+          const current = localOrders[idx]!;
+          if (
+            current.status !== remote.status ||
+            current.cancelledBy !== remote.cancelledBy ||
+            current.cancelledAt !== remote.cancelledAt ||
+            current.cancellationReason !== remote.cancellationReason
+          ) {
+            localOrders[idx] = {
+              ...current,
+              status: remote.status,
+              statusUpdatedAt: remote.statusUpdatedAt || Date.now(),
+              cancelledBy: remote.cancelledBy || current.cancelledBy,
+              cancelledAt: remote.cancelledAt || current.cancelledAt,
+              cancellationReason: remote.cancellationReason || current.cancellationReason,
+            };
+            hasChanges = true;
+          }
+        } else {
+          localOrders.unshift(remote);
+          hasChanges = true;
+          if (remote.orderNumber) {
+            this.recordCustomerOrderId(remote.orderNumber);
+          }
+        }
+      }
+
+      if (hasChanges) {
+        safeSetJSON(STORAGE_KEYS.ORDERS, localOrders);
+        window.dispatchEvent(
+          new CustomEvent("bwc_order_change", {
+            detail: { action: "customer_sync", count: remoteOrders.length },
+          }),
+        );
+      }
+    } catch (err) {
+      console.warn("Failed to refresh customer orders:", err);
+    }
+
+    return this.getCustomerRecentOrders();
   },
 
   getCustomerLastOrderId(): string | null {
@@ -2432,16 +2535,25 @@ export const adminStore = {
     if (typeof window === "undefined")
       return { syncedOrders: 0, updatedOrders: 0, syncedReservations: 0, updatedReservations: 0 };
     try {
+      const isUserAdmin = this.isAuthenticated();
+
+      // For customer devices (non-admin), refresh customer's own recent orders first
+      if (!isUserAdmin) {
+        await this.refreshCustomerOrders(targetQuery);
+      }
+
       const localOrders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const localReservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
 
-      // 1. Fetch remote orders and reservations from server and Supabase in parallel
+      // 1. Fetch remote orders and reservations from server and Supabase in parallel (staff-only for /api/sync)
       const [resData, sbOrders, sbReservations] = await Promise.all([
-        fetch("/api/sync", { headers: { ...this.getAuthHeaders() }, cache: "no-store" })
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-        isSupabaseConfigured() ? fetchOrdersFromSupabase() : Promise.resolve([]),
-        isSupabaseConfigured() ? fetchReservationsFromSupabase() : Promise.resolve([]),
+        isUserAdmin
+          ? fetch("/api/sync", { headers: { ...this.getAuthHeaders() }, cache: "no-store" })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null)
+          : Promise.resolve(null),
+        isUserAdmin && isSupabaseConfigured() ? fetchOrdersFromSupabase() : Promise.resolve([]),
+        isUserAdmin && isSupabaseConfigured() ? fetchReservationsFromSupabase() : Promise.resolve([]),
       ]);
 
       const safeSbOrders: AdminOrder[] = Array.isArray(sbOrders) ? sbOrders : [];
@@ -2707,7 +2819,6 @@ export const adminStore = {
 
       // Merge remote orders into local state without dropping unsynced orders
       const mergedOrders = [...localOrders];
-      const isUserAdmin = this.isAuthenticated();
 
       // For authenticated Admin: ensure all remote orders from Supabase are merged in
       if (isUserAdmin && isSupabaseConfigured() && Array.isArray(sbOrders)) {
@@ -3070,15 +3181,21 @@ export const adminStore = {
             );
           }
         }
-      } else if (payload.order && this.isAuthenticated()) {
-        // ONLY insert unknown foreign order into local storage if this device is authenticated ADMIN
-        orders.unshift(payload.order);
-        safeSetJSON(STORAGE_KEYS.ORDERS, orders);
-        window.dispatchEvent(
-          new CustomEvent("bwc_order_change", {
-            detail: payload,
-          }),
-        );
+      } else if (payload.order) {
+        const customerOrderIds = safeGetJSON<string[]>(STORAGE_KEYS.CUSTOMER_ORDER_IDS, []);
+        const isMyOrder = customerOrderIds.some((id) => {
+          const c = String(id).replace(/^#/, "").trim().toLowerCase();
+          return (cleanNum && c === cleanNum) || (cleanId && c === cleanId);
+        });
+        if (this.isAuthenticated() || isMyOrder) {
+          orders.unshift(payload.order);
+          safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+          window.dispatchEvent(
+            new CustomEvent("bwc_order_change", {
+              detail: payload,
+            }),
+          );
+        }
       }
     } else if (type === "order_add" && payload.order) {
       // Non-admin customer devices should NEVER insert stranger orders into local storage
