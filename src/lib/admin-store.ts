@@ -1548,14 +1548,18 @@ export const adminStore = {
       {},
     );
 
-    const ordersToQuery = Array.from(ordersToQuerySet).slice(0, 20).map((id) => ({
-      order: id,
-      token:
-        customerTokens[id] ||
-        customerTokens[id.replace(/^#/, "")] ||
-        customerTokens[`#${id.replace(/^#/, "")}`] ||
-        "",
-    }));
+    const ordersToQuery = Array.from(ordersToQuerySet).slice(0, 20).map((id) => {
+      const cleanId = String(id || "");
+      const cleanNum = cleanId.replace(/^#/, "");
+      return {
+        order: cleanId,
+        token:
+          customerTokens[cleanId] ||
+          customerTokens[cleanNum] ||
+          customerTokens[`#${cleanNum}`] ||
+          "",
+      };
+    });
 
     try {
       const [res, cloudStatuses] = await Promise.all([
@@ -2224,21 +2228,21 @@ export const adminStore = {
     ];
 
     const rows = orders.map((o) => [
-      `"${o.orderNumber}"`,
-      `"${o.placedAt}"`,
-      `"${o.customerName.replace(/"/g, '""')}"`,
-      `"${o.customerPhone}"`,
-      `"${o.customerEmail}"`,
-      `"${o.fulfilmentType}"`,
-      `"${(o.deliveryAddress || "Pickup at Cafe").replace(/"/g, '""')}"`,
-      `"${o.status}"`,
-      o.items.reduce((s, i) => s + i.quantity, 0),
-      o.subtotal.toFixed(2),
-      o.tax.toFixed(2),
-      o.tipAmount.toFixed(2),
-      o.deliveryFee.toFixed(2),
-      o.grandTotal.toFixed(2),
-      `"${o.paymentMethod}"`,
+      `"${String(o.orderNumber || "")}"`,
+      `"${String(o.placedAt || "")}"`,
+      `"${String(o.customerName || "Customer").replace(/"/g, '""')}"`,
+      `"${String(o.customerPhone || "")}"`,
+      `"${String(o.customerEmail || "")}"`,
+      `"${String(o.fulfilmentType || "pickup")}"`,
+      `"${String(o.deliveryAddress || "Pickup at Cafe").replace(/"/g, '""')}"`,
+      `"${String(o.status || "pending")}"`,
+      (o.items || []).reduce((s, i) => s + (Number(i?.quantity) || 0), 0),
+      (Number(o.subtotal) || 0).toFixed(2),
+      (Number(o.tax) || 0).toFixed(2),
+      (Number(o.tipAmount) || 0).toFixed(2),
+      (Number(o.deliveryFee) || 0).toFixed(2),
+      (Number(o.grandTotal) || 0).toFixed(2),
+      `"${String(o.paymentMethod || "counter")}"`,
     ]);
 
     const csvContent =
@@ -2275,17 +2279,17 @@ export const adminStore = {
     ];
 
     const rows = reservations.map((r) => [
-      `"${r.reservationNumber}"`,
-      `"${r.fullName.replace(/"/g, '""')}"`,
-      `"${r.phone}"`,
-      `"${r.email}"`,
-      `"${r.partySize}"`,
-      `"${r.date}"`,
-      `"${r.time}"`,
-      `"${r.seating}"`,
-      `"${r.status}"`,
-      `"${(r.specialRequests || "").replace(/"/g, '""')}"`,
-      `"${r.createdAt}"`,
+      `"${String(r.reservationNumber || "")}"`,
+      `"${String(r.fullName || "Guest").replace(/"/g, '""')}"`,
+      `"${String(r.phone || "")}"`,
+      `"${String(r.email || "")}"`,
+      `"${String(r.partySize || "")}"`,
+      `"${String(r.date || "")}"`,
+      `"${String(r.time || "")}"`,
+      `"${String(r.seating || "")}"`,
+      `"${String(r.status || "confirmed")}"`,
+      `"${String(r.specialRequests || "").replace(/"/g, '""')}"`,
+      `"${String(r.createdAt || "")}"`,
     ]);
 
     const csvContent =
@@ -3481,7 +3485,7 @@ export const adminStore = {
       const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const exists = orders.some(
         (o) =>
-          o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanIncoming ||
+          String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase() === cleanIncoming ||
           o.id === payload.order.id,
       );
       if (!exists) {
@@ -3497,7 +3501,7 @@ export const adminStore = {
       const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       const cleanNum = String(payload.orderNumber).replace(/^#/, "").trim().toLowerCase();
       const idx = orders.findIndex(
-        (o) => o.orderNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum,
+        (o) => String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase() === cleanNum,
       );
       if (idx !== -1 && orders[idx] && orders[idx]!.status !== "cancelled") {
         orders[idx]!.status = "cancelled";
@@ -3539,7 +3543,7 @@ export const adminStore = {
       const reservations = safeGetJSON<AdminReservation[]>(STORAGE_KEYS.RESERVATIONS, []);
       const cleanNum = String(payload.reservationNumber).replace(/^#/, "").trim().toLowerCase();
       const idx = reservations.findIndex(
-        (r) => r.reservationNumber.replace(/^#/, "").trim().toLowerCase() === cleanNum,
+        (r) => String(r.reservationNumber || "").replace(/^#/, "").trim().toLowerCase() === cleanNum,
       );
       if (idx !== -1 && reservations[idx] && reservations[idx]!.status !== payload.status) {
         reservations[idx]!.status = payload.status;

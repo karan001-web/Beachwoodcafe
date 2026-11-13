@@ -252,7 +252,7 @@ ${cafeName} Team`;
 
     case "custom":
     default:
-      return `Hello ${res.fullName}! Update from ${cafeName} regarding your table booking #${res.reservationNumber}: Your reservation status is currently ${res.status.toUpperCase()}.`;
+      return `Hello ${res.fullName || "Guest"}! Update from ${cafeName} regarding your table booking #${res.reservationNumber || ""}: Your reservation status is currently ${String(res.status || "").toUpperCase()}.`;
   }
 }
 
@@ -816,7 +816,8 @@ function AdminPage() {
       selectedOrder &&
       (selectedOrder.id === orderId ||
         (orderNumber && selectedOrder.orderNumber === orderNumber) ||
-        selectedOrder.orderNumber.replace(/^#/, "") === (orderNumber || orderId).replace(/^#/, ""))
+        String(selectedOrder.orderNumber || "").replace(/^#/, "") ===
+          String(orderNumber || orderId || "").replace(/^#/, ""))
     ) {
       setSelectedOrder((prev) => (prev ? { ...prev, status, statusUpdatedAt: now } : null));
     }
@@ -840,8 +841,8 @@ function AdminPage() {
         selectedOrder &&
         (selectedOrder.id === orderId ||
           (orderNumber && selectedOrder.orderNumber === orderNumber) ||
-          selectedOrder.orderNumber.replace(/^#/, "") ===
-            (orderNumber || orderId).replace(/^#/, ""))
+          String(selectedOrder.orderNumber || "").replace(/^#/, "") ===
+            String(orderNumber || orderId || "").replace(/^#/, ""))
       ) {
         setSelectedOrder(null);
       }
@@ -2271,24 +2272,26 @@ function AdminPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredOrders.map((ord) => {
+                  const ordNum = String(ord.orderNumber || "").replace(/^#/, "");
+                  const ordId = String(ord.id || "");
                   const isHighlighted =
                     highlightedOrderId &&
                     (highlightedOrderId === ord.orderNumber ||
-                      highlightedOrderId.replace(/^#/, "") === ord.orderNumber.replace(/^#/, "") ||
+                      String(highlightedOrderId).replace(/^#/, "") === ordNum ||
                       highlightedOrderId === ord.id);
                   const isUnviewed = unviewedOrderIds.some(
                     (id) =>
                       id === ord.orderNumber ||
-                      id.replace(/^#/, "") === ord.orderNumber.replace(/^#/, "") ||
+                      String(id || "").replace(/^#/, "") === ordNum ||
                       id === ord.id,
                   );
 
                   return (
                     <div
                       key={ord.id}
-                      id={`order-card-${ord.orderNumber.replace(/^#/, "")}`}
+                      id={`order-card-${ordNum || ordId}`}
                       onClick={() => {
-                        if (isUnviewed) handleMarkOrderViewed(ord.orderNumber);
+                        if (isUnviewed && ord.orderNumber) handleMarkOrderViewed(ord.orderNumber);
                       }}
                       className={`p-4 sm:p-5 rounded-2xl bg-white shadow-sm transition-all duration-300 flex flex-col justify-between space-y-4 ${
                         isHighlighted
@@ -2491,8 +2494,8 @@ function AdminPage() {
                           </button>
 
                           <a
-                            href={`https://wa.me/${ord.customerPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                              `Hello ${ord.customerName}! Beachwood Cafe update regarding your order #${ord.orderNumber}: Your order status is now ${ord.status.toUpperCase()}.`,
+                            href={`https://wa.me/${String(ord.customerPhone || "").replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                              `Hello ${ord.customerName || "Customer"}! Beachwood Cafe update regarding your order #${ord.orderNumber || ""}: Your order status is now ${String(ord.status || "").toUpperCase()}.`,
                             )}`}
                             target="_blank"
                             rel="noreferrer"
@@ -2613,25 +2616,27 @@ function AdminPage() {
                     </thead>
                     <tbody className="divide-y divide-[#1a3b6b]/10">
                       {filteredReservations.map((res) => {
+                        const resNum = String(res.reservationNumber || "").replace(/^#/, "");
+                        const resId = String(res.id || "");
                         const isResHighlighted =
                           highlightedBookingId &&
                           (highlightedBookingId === res.reservationNumber ||
-                            highlightedBookingId.replace(/^#/, "") ===
-                              res.reservationNumber.replace(/^#/, "") ||
+                            String(highlightedBookingId).replace(/^#/, "") === resNum ||
                             highlightedBookingId === res.id);
                         const isResUnviewed = unviewedBookingIds.some(
                           (id) =>
                             id === res.reservationNumber ||
-                            id.replace(/^#/, "") === res.reservationNumber.replace(/^#/, "") ||
+                            String(id || "").replace(/^#/, "") === resNum ||
                             id === res.id,
                         );
 
                         return (
                           <tr
                             key={res.id}
-                            id={`booking-row-${res.reservationNumber.replace(/^#/, "")}`}
+                            id={`booking-row-${resNum || resId}`}
                             onClick={() => {
-                              if (isResUnviewed) handleMarkReservationViewed(res.reservationNumber);
+                              if (isResUnviewed && res.reservationNumber)
+                                handleMarkReservationViewed(res.reservationNumber);
                             }}
                             className={`transition-all duration-300 ${
                               isResHighlighted
@@ -3025,9 +3030,9 @@ function AdminPage() {
               <p className="text-[#595347]">Phone: {selectedOrder.customerPhone}</p>
               <p className="text-[#595347]">Email: {selectedOrder.customerEmail}</p>
               <p className="text-[#1a3b6b] font-semibold pt-1">
-                Fulfilment: {selectedOrder.fulfilmentType.toUpperCase()}
+                Fulfilment: {String(selectedOrder.fulfilmentType || "").toUpperCase()}
                 {selectedOrder.fulfilmentType === "delivery" &&
-                  ` to ${selectedOrder.deliveryAddress} ${selectedOrder.deliveryApt || ""}, ${selectedOrder.deliveryCity}`}
+                  ` to ${selectedOrder.deliveryAddress || ""} ${selectedOrder.deliveryApt || ""}, ${selectedOrder.deliveryCity || ""}`}
               </p>
               <p className="text-[#595347]">
                 Utensils: {selectedOrder.includeUtensils ? "Included" : "None requested"}
