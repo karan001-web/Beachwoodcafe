@@ -1607,15 +1607,19 @@ export const adminStore = {
             cloudStatuses[`BWC-${cleanUpper}`];
 
           if (hub?.status && hub.status !== loc.status) {
-            localOrders[i] = {
-              ...loc,
-              status: hub.status,
-              statusUpdatedAt: hub.statusUpdatedAt || hub.updatedAt || Date.now(),
-              cancelledBy: hub.cancelledBy || loc.cancelledBy,
-              cancelledAt: hub.cancelledAt || loc.cancelledAt,
-              cancellationReason: hub.cancellationReason || loc.cancellationReason,
-            };
-            hasChanges = true;
+            const hubTime = hub.statusUpdatedAt || hub.updatedAt || 0;
+            const locTime = loc.statusUpdatedAt || loc.timestamp || 0;
+            if (hubTime >= locTime) {
+              localOrders[i] = {
+                ...loc,
+                status: hub.status,
+                statusUpdatedAt: hubTime,
+                cancelledBy: hub.cancelledBy || loc.cancelledBy,
+                cancelledAt: hub.cancelledAt || loc.cancelledAt,
+                cancellationReason: hub.cancellationReason || loc.cancellationReason,
+              };
+              hasChanges = true;
+            }
           }
         }
       }

@@ -1416,13 +1416,15 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
           if (hubStatus?.status) {
             if (ord) {
-              ord.status = hubStatus.status;
-              if (hubStatus.updatedAt || hubStatus.statusUpdatedAt) {
-                ord.statusUpdatedAt = hubStatus.updatedAt || hubStatus.statusUpdatedAt;
+              const hubTime = hubStatus.updatedAt || hubStatus.statusUpdatedAt || 0;
+              const ordTime = ord.statusUpdatedAt || ord.timestamp || 0;
+              if (hubTime >= ordTime) {
+                ord.status = hubStatus.status;
+                ord.statusUpdatedAt = hubTime;
+                if (hubStatus.cancelledBy) ord.cancelledBy = hubStatus.cancelledBy;
+                if (hubStatus.cancelledAt) ord.cancelledAt = hubStatus.cancelledAt;
+                if (hubStatus.cancellationReason) ord.cancellationReason = hubStatus.cancellationReason;
               }
-              if (hubStatus.cancelledBy) ord.cancelledBy = hubStatus.cancelledBy;
-              if (hubStatus.cancelledAt) ord.cancelledAt = hubStatus.cancelledAt;
-              if (hubStatus.cancellationReason) ord.cancellationReason = hubStatus.cancellationReason;
             } else {
               // Cold container fallback: order exists in cloud hub!
               ord = {
@@ -1512,13 +1514,15 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
 
     if (hubStatus?.status) {
       if (ord) {
-        ord.status = hubStatus.status;
-        if (hubStatus.updatedAt || hubStatus.statusUpdatedAt) {
-          ord.statusUpdatedAt = hubStatus.updatedAt || hubStatus.statusUpdatedAt;
+        const hubTime = hubStatus.updatedAt || hubStatus.statusUpdatedAt || 0;
+        const ordTime = ord.statusUpdatedAt || ord.timestamp || 0;
+        if (hubTime >= ordTime) {
+          ord.status = hubStatus.status;
+          ord.statusUpdatedAt = hubTime;
+          if (hubStatus.cancelledBy) ord.cancelledBy = hubStatus.cancelledBy;
+          if (hubStatus.cancelledAt) ord.cancelledAt = hubStatus.cancelledAt;
+          if (hubStatus.cancellationReason) ord.cancellationReason = hubStatus.cancellationReason;
         }
-        if (hubStatus.cancelledBy) ord.cancelledBy = hubStatus.cancelledBy;
-        if (hubStatus.cancelledAt) ord.cancelledAt = hubStatus.cancelledAt;
-        if (hubStatus.cancellationReason) ord.cancellationReason = hubStatus.cancellationReason;
       } else {
         ord = {
           id: `ord_${cleanQuery}`,
@@ -1915,7 +1919,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           }
 
           // Authoritative Cloud Status Hub Sync (multi-container / cross-device)
-          syncStatusToCloudHub(ord.orderNumber || cleanNum || cleanId, {
+          await syncStatusToCloudHub(ord.orderNumber || cleanNum || cleanId, {
             status,
             statusUpdatedAt: ord["statusUpdatedAt"],
             cancelledBy: ord["cancelledBy"],
@@ -1952,7 +1956,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           };
           serverOrders.unshift(newOrd);
 
-          syncStatusToCloudHub(newOrd.orderNumber || cleanNum || cleanId, {
+          await syncStatusToCloudHub(newOrd.orderNumber || cleanNum || cleanId, {
             status,
             statusUpdatedAt: newOrd.statusUpdatedAt,
             cancelledBy: newOrd.cancelledBy,
