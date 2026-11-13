@@ -20,6 +20,7 @@ import {
   Printer,
   Sparkles,
   ShieldCheck,
+  ShieldAlert,
   Bike,
   Store,
   ChevronRight,
@@ -27,7 +28,7 @@ import {
 } from "lucide-react";
 import { useCart, parseItemPrice } from "../lib/cart-context";
 import { site } from "../lib/site-content";
-import { adminStore } from "../lib/admin-store";
+import { adminStore, type OrderStatus } from "../lib/admin-store";
 import { printOrderReceipt } from "../lib/receipt-printer";
 
 type CheckoutStep = "items" | "checkout" | "confirmed";
@@ -127,6 +128,74 @@ export function CartDrawer() {
   const [errors, setErrors] = useState<CheckoutFormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [confirmedOrder, setConfirmedOrder] = useState<ConfirmedOrder | null>(null);
+  const [liveOrderStatus, setLiveOrderStatus] = useState<OrderStatus>("pending");
+  const [orderCancellationInfo, setOrderCancellationInfo] = useState<{
+    cancelledBy?: "customer" | "admin" | undefined;
+    reason?: string | undefined;
+  } | null>(null);
+
+  // Cross-device live order status sync for confirmed order screen
+  useEffect(() => {
+    if (activeStep !== "confirmed" || !confirmedOrder?.orderId) return;
+
+    const initialOrd = adminStore.findOrder(confirmedOrder.orderId);
+    if (initialOrd?.status) {
+      setLiveOrderStatus(initialOrd.status);
+      if (initialOrd.status === "cancelled") {
+        setOrderCancellationInfo({
+          cancelledBy: initialOrd.cancelledBy,
+          reason: initialOrd.cancellationReason,
+        });
+      }
+    } else {
+      setLiveOrderStatus("pending");
+      setOrderCancellationInfo(null);
+    }
+
+    const handleOrderChange = (e: any) => {
+      const detail = e?.detail;
+      const targetId = confirmedOrder.orderId.replace(/^#/, "").trim().toLowerCase();
+      const evNum = detail?.orderNumber ? String(detail.orderNumber).replace(/^#/, "").trim().toLowerCase() : "";
+      const evId = detail?.orderId ? String(detail.orderId).trim().toLowerCase() : "";
+
+      if (evNum === targetId || evId === targetId || detail?.action === "customer_sync" || detail?.action === "status_update") {
+        const refreshed = adminStore.findOrder(confirmedOrder.orderId);
+        if (refreshed?.status) {
+          setLiveOrderStatus(refreshed.status);
+          if (refreshed.status === "cancelled") {
+            setOrderCancellationInfo({
+              cancelledBy: refreshed.cancelledBy,
+              reason: refreshed.cancellationReason,
+            });
+          }
+        }
+      }
+    };
+
+    window.addEventListener("bwc_order_change", handleOrderChange);
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const fresh = await adminStore.lookupOrder(confirmedOrder.orderId);
+        if (fresh?.status) {
+          setLiveOrderStatus(fresh.status);
+          if (fresh.status === "cancelled") {
+            setOrderCancellationInfo({
+              cancelledBy: fresh.cancelledBy,
+              reason: fresh.cancellationReason,
+            });
+          }
+        }
+      } catch {
+        // silent
+      }
+    }, 3000);
+
+    return () => {
+      window.removeEventListener("bwc_order_change", handleOrderChange);
+      clearInterval(pollInterval);
+    };
+  }, [activeStep, confirmedOrder?.orderId]);
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [isStripeRedirecting, setIsStripeRedirecting] = useState<boolean>(false);
 
@@ -1774,30 +1843,111 @@ export function CartDrawer() {
                   )}
                 </div>
 
-                {/* Progress Status Bar */}
-                <div className="p-4 rounded-xl bg-white/80 border border-[#c9bba6] space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-[#191918]">
-                    <span>Status Tracker</span>
-                    <span className="text-[#16a34a] flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-[#16a34a] animate-ping" />
-                      Kitchen Preparing Fresh
-                    </span>
+                {/* Live Progress Status Bar / Cancelled Alert */}
+                {liveOrderStatus === "cancelled" ? (
+                  <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-2 animate-in fade-in">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-rose-600 text-white shrink-0">
+                        <ShieldAlert className="size-4" />
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-[0.68rem] uppercase tracking-wider text-rose-700 block">
+                          Order Status: Cancelled
+                        </span>
+                        <p className="font-bold text-sm text-rose-950">
+                          {orderCancellationInfo?.cancelledBy === "customer"
+                            ? "Order cancelled by YOU via online tracking"
+                            : "Order cancelled by Cafe Staff / Management"}
+                        </p>
+                      </div>
+                    </div>
+                    {orderCancellationInfo?.reason && (
+                      <p className="text-xs text-rose-800 bg-white/80 p-2 rounded-lg border border-rose-200/60">
+                        <strong>Reason:</strong> {orderCancellationInfo.reason}
+                      </p>
+                    )}
                   </div>
-                  <div className="grid grid-cols-3 gap-1 pt-1">
-                    <div className="h-1.5 rounded-full bg-[#16a34a]" />
-                    <div className="h-1.5 rounded-full bg-[#16a34a] animate-pulse" />
-                    <div className="h-1.5 rounded-full bg-[#c9bba6]/40" />
+                ) : (
+                  <div className="p-4 rounded-xl bg-white/90 border border-[#c9bba6] space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between text-xs font-bold text-[#191918]">
+                      <span>Live Status Tracker</span>
+                      {liveOrderStatus === "pending" && (
+                        <span className="text-[#d99214] flex items-center gap-1 font-bold">
+                          <span className="w-2 h-2 rounded-full bg-[#d99214] animate-pulse" />
+                          1. Placed · Sent to Kitchen
+                        </span>
+                      )}
+                      {liveOrderStatus === "kitchen" && (
+                        <span className="text-[#16a34a] flex items-center gap-1 font-bold">
+                          <span className="w-2 h-2 rounded-full bg-[#16a34a] animate-ping" />
+                          2. Kitchen Preparing Fresh
+                        </span>
+                      )}
+                      {liveOrderStatus === "ready" && (
+                        <span className="text-[#16a34a] flex items-center gap-1 font-bold">
+                          <span className="w-2 h-2 rounded-full bg-[#16a34a]" />
+                          {confirmedOrder.fulfilmentType === "pickup"
+                            ? "3. Ready for Pick Up!"
+                            : "3. Out for Delivery!"}
+                        </span>
+                      )}
+                      {liveOrderStatus === "completed" && (
+                        <span className="text-[#15803d] flex items-center gap-1 font-bold">
+                          <CheckCircle className="size-3.5 text-[#15803d]" />
+                          4. Completed · Enjoy your meal!
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-1 pt-1">
+                      <div className="h-1.5 rounded-full bg-[#16a34a]" />
+                      <div
+                        className={`h-1.5 rounded-full ${
+                          liveOrderStatus === "kitchen"
+                            ? "bg-[#16a34a] animate-pulse"
+                            : liveOrderStatus === "ready" || liveOrderStatus === "completed"
+                              ? "bg-[#16a34a]"
+                              : "bg-[#c9bba6]/40"
+                        }`}
+                      />
+                      <div
+                        className={`h-1.5 rounded-full ${
+                          liveOrderStatus === "ready"
+                            ? "bg-[#16a34a] animate-pulse"
+                            : liveOrderStatus === "completed"
+                              ? "bg-[#16a34a]"
+                              : "bg-[#c9bba6]/40"
+                        }`}
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-[0.65rem] text-[#767064] pt-1 font-semibold">
+                      <span className="text-[#16a34a]">1. Placed</span>
+                      <span
+                        className={
+                          liveOrderStatus === "kitchen" ||
+                          liveOrderStatus === "ready" ||
+                          liveOrderStatus === "completed"
+                            ? "text-[#16a34a] font-bold"
+                            : ""
+                        }
+                      >
+                        2. In Kitchen
+                      </span>
+                      <span
+                        className={
+                          liveOrderStatus === "ready" || liveOrderStatus === "completed"
+                            ? "text-[#16a34a] font-bold"
+                            : ""
+                        }
+                      >
+                        {confirmedOrder.fulfilmentType === "pickup"
+                          ? "3. Ready for Pickup"
+                          : "3. Out for Delivery"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-[0.65rem] text-[#767064] pt-1 font-semibold">
-                    <span className="text-[#16a34a]">1. Placed</span>
-                    <span className="text-[#16a34a]">2. In Kitchen</span>
-                    <span>
-                      {confirmedOrder.fulfilmentType === "pickup"
-                        ? "3. Ready for Pickup"
-                        : "3. Out for Delivery"}
-                    </span>
-                  </div>
-                </div>
+                )}
 
                 {/* Fulfilment & Timing Details */}
                 <div className="p-4 rounded-xl bg-white/80 border border-[#c9bba6] space-y-2.5 text-xs">

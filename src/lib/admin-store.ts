@@ -362,6 +362,62 @@ function broadcastEvent(type: string, payload: any) {
   publishCloudEvent(type, wrappedPayload);
 }
 
+// ============================================================================
+// GLOBAL DURABLE CLOUD STATUS HUB (CROSS-CONTAINER & CROSS-DEVICE PERSISTENCE)
+// ============================================================================
+const CLOUD_STATUS_HUB_ID = "ff808181a09d98f701a1d3a675d81e18";
+
+async function syncStatusToCloudHub(orderNumber: string, statusData: any) {
+  if (!orderNumber || typeof window === "undefined") return;
+  const clean = String(orderNumber).replace(/^#/, "").trim();
+  if (!clean) return;
+  try {
+    const getRes = await fetch(`https://api.restful-api.dev/objects/${CLOUD_STATUS_HUB_ID}`, {
+      signal: AbortSignal.timeout(3500),
+    });
+    let currentData: Record<string, any> = {};
+    if (getRes.ok) {
+      const obj = await getRes.json();
+      currentData = obj && typeof obj.data === "object" && obj.data ? obj.data : {};
+    }
+    currentData[clean] = {
+      ...(currentData[clean] || {}),
+      ...statusData,
+      status: statusData.status,
+      updatedAt: statusData.statusUpdatedAt || Date.now(),
+    };
+    await fetch(`https://api.restful-api.dev/objects/${CLOUD_STATUS_HUB_ID}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "bwc_order_status_hub",
+        data: currentData,
+      }),
+      signal: AbortSignal.timeout(3500),
+    });
+  } catch (e) {
+    console.warn("syncStatusToCloudHub client failed:", e);
+  }
+}
+
+async function fetchAllStatusesFromCloudHub(): Promise<Record<string, any>> {
+  if (typeof window === "undefined") return {};
+  try {
+    const res = await fetch(`https://api.restful-api.dev/objects/${CLOUD_STATUS_HUB_ID}`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const obj = await res.json();
+      if (obj && typeof obj.data === "object" && obj.data) {
+        return obj.data;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return {};
+}
+
 // Active background sync guards to avoid duplicate retry storms
 const activeSyncingOrderIds = new Set<string>();
 const activeSyncingResIds = new Set<string>();
@@ -844,6 +900,14 @@ export const adminStore = {
         }
       }
 
+      // Sync to Cloud Status Hub for instant cross-device delivery
+      syncStatusToCloudHub(orders[idx]!.orderNumber || orderNumber || orderId, {
+        status,
+        statusUpdatedAt: now,
+        cancelledBy: orders[idx]!.cancelledBy,
+        cancellationReason: orders[idx]!.cancellationReason,
+      }).catch(() => {});
+
       // Background sync to serverless cache
       fetch("/api/orders/update-status", {
         method: "POST",
@@ -973,6 +1037,14 @@ export const adminStore = {
         customerTokens[cleanIdentifier] ||
         "";
 
+      // Sync cancellation to Cloud Status Hub
+      syncStatusToCloudHub(order.orderNumber, {
+        status: "cancelled",
+        statusUpdatedAt: order.cancelledAt || Date.now(),
+        cancelledBy: "customer",
+        cancellationReason: order.cancellationReason,
+      }).catch(() => {});
+
       // Sync cancellation to server
       fetch("/api/orders/update-status", {
         method: "POST",
@@ -1049,6 +1121,14 @@ export const adminStore = {
           detail: cancelPayload,
         }),
       );
+
+      // Sync admin cancellation to Cloud Status Hub
+      syncStatusToCloudHub(order.orderNumber, {
+        status: "cancelled",
+        statusUpdatedAt: order.cancelledAt || Date.now(),
+        cancelledBy: "admin",
+        cancellationReason: order.cancellationReason,
+      }).catch(() => {});
 
       // Sync admin cancellation to server
       fetch("/api/orders/update-status", {
@@ -1245,12 +1325,44 @@ export const adminStore = {
       });
 
       if (res.status === 404) {
-        // Order confirmed not found or deleted on server
-        const localMatch = this.findOrder(query);
-        if (localMatch) {
-          this.purgeDeletedOrder(localMatch.id, localMatch.orderNumber);
+        // Never purge local orders on transient 404 from serverless container!
+        // Instead, check Cloud Status Hub fallback
+        try {
+          const cloudStatuses = await fetchAllStatusesFromCloudHub();
+          const hubStatus =
+            cloudStatuses[cleanLower] ||
+            cloudStatuses[cleanQuery.toUpperCase()] ||
+            cloudStatuses[`BWC-${cleanQuery.toUpperCase()}`];
+          const localMatch = this.findOrder(query);
+          if (localMatch && hubStatus?.status) {
+            localMatch.status = hubStatus.status;
+            if (hubStatus.statusUpdatedAt || hubStatus.updatedAt) {
+              localMatch.statusUpdatedAt = hubStatus.statusUpdatedAt || hubStatus.updatedAt;
+            }
+            if (hubStatus.cancelledBy) localMatch.cancelledBy = hubStatus.cancelledBy;
+            if (hubStatus.cancellationReason) localMatch.cancellationReason = hubStatus.cancellationReason;
+            const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+            const idx = orders.findIndex((o) => o && (o.id === localMatch.id || o.orderNumber === localMatch.orderNumber));
+            if (idx !== -1) {
+              orders[idx] = localMatch;
+              safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+              window.dispatchEvent(
+                new CustomEvent("bwc_order_change", {
+                  detail: {
+                    action: "status_update",
+                    orderNumber: localMatch.orderNumber,
+                    status: localMatch.status,
+                    order: localMatch,
+                  },
+                }),
+              );
+            }
+            return localMatch;
+          }
+          return localMatch || undefined;
+        } catch {
+          return this.findOrder(query) || undefined;
         }
-        return undefined;
       }
 
       if (res.ok) {
@@ -1289,6 +1401,16 @@ export const adminStore = {
             }
             safeSetJSON(STORAGE_KEYS.ORDERS, orders);
             this.recordCustomerOrderId(mergedOrder.orderNumber);
+            window.dispatchEvent(
+              new CustomEvent("bwc_order_change", {
+                detail: {
+                  action: "status_update",
+                  orderNumber: mergedOrder.orderNumber,
+                  status: mergedOrder.status,
+                  order: mergedOrder,
+                },
+              }),
+            );
             return mergedOrder;
           }
         }
@@ -1297,7 +1419,44 @@ export const adminStore = {
       console.warn("Server tracking lookup error:", err);
     }
 
-    // 4. Check local memory / localStorage fallback (if offline or server unreachable)
+    // 4. Check Cloud Status Hub fallback
+    try {
+      const cloudStatuses = await fetchAllStatusesFromCloudHub();
+      const hubStatus =
+        cloudStatuses[cleanLower] ||
+        cloudStatuses[cleanQuery.toUpperCase()] ||
+        cloudStatuses[`BWC-${cleanQuery.toUpperCase()}`];
+      const localMatch = this.findOrder(query);
+      if (localMatch && hubStatus?.status) {
+        localMatch.status = hubStatus.status;
+        if (hubStatus.statusUpdatedAt || hubStatus.updatedAt) {
+          localMatch.statusUpdatedAt = hubStatus.statusUpdatedAt || hubStatus.updatedAt;
+        }
+        if (hubStatus.cancelledBy) localMatch.cancelledBy = hubStatus.cancelledBy;
+        if (hubStatus.cancellationReason) localMatch.cancellationReason = hubStatus.cancellationReason;
+        const orders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
+        const idx = orders.findIndex((o) => o && (o.id === localMatch.id || o.orderNumber === localMatch.orderNumber));
+        if (idx !== -1) {
+          orders[idx] = localMatch;
+          safeSetJSON(STORAGE_KEYS.ORDERS, orders);
+          window.dispatchEvent(
+            new CustomEvent("bwc_order_change", {
+              detail: {
+                action: "status_update",
+                orderNumber: localMatch.orderNumber,
+                status: localMatch.status,
+                order: localMatch,
+              },
+            }),
+          );
+        }
+        return localMatch;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 5. Check local memory / localStorage fallback (if offline or server unreachable)
     const localMatch = this.findOrder(query);
     if (localMatch) {
       return localMatch;
@@ -1374,55 +1533,89 @@ export const adminStore = {
     }));
 
     try {
-      const res = await fetch("/api/orders/track", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orders: ordersToQuery }),
-      });
+      const [res, cloudStatuses] = await Promise.all([
+        fetch("/api/orders/track", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orders: ordersToQuery }),
+        }).catch(() => null),
+        fetchAllStatusesFromCloudHub().catch(() => ({})),
+      ]);
 
-      if (!res.ok) return this.getCustomerRecentOrders();
-      const data = await res.json();
-      if (!data?.success || !Array.isArray(data?.orders)) return this.getCustomerRecentOrders();
-
-      const remoteOrders: AdminOrder[] = data.orders;
       const localOrders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);
       let hasChanges = false;
 
-      for (const remote of remoteOrders) {
-        if (!remote) continue;
-        const cleanRemoteNum = String(remote.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-        const cleanRemoteId = String(remote.id || "").trim().toLowerCase();
+      // 1. Process server track response if available
+      if (res && res.ok) {
+        const data = await res.json();
+        if (data?.success && Array.isArray(data?.orders)) {
+          const remoteOrders: AdminOrder[] = data.orders;
 
-        const idx = localOrders.findIndex((o) => {
-          if (!o) return false;
-          const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
-          const oId = String(o.id || "").trim().toLowerCase();
-          return (cleanRemoteNum && oNum === cleanRemoteNum) || (cleanRemoteId && oId === cleanRemoteId);
-        });
+          for (const remote of remoteOrders) {
+            if (!remote) continue;
+            const cleanRemoteNum = String(remote.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+            const cleanRemoteId = String(remote.id || "").trim().toLowerCase();
 
-        if (idx !== -1) {
-          const current = localOrders[idx]!;
-          if (
-            current.status !== remote.status ||
-            current.cancelledBy !== remote.cancelledBy ||
-            current.cancelledAt !== remote.cancelledAt ||
-            current.cancellationReason !== remote.cancellationReason
-          ) {
-            localOrders[idx] = {
-              ...current,
-              status: remote.status,
-              statusUpdatedAt: remote.statusUpdatedAt || Date.now(),
-              cancelledBy: remote.cancelledBy || current.cancelledBy,
-              cancelledAt: remote.cancelledAt || current.cancelledAt,
-              cancellationReason: remote.cancellationReason || current.cancellationReason,
+            const idx = localOrders.findIndex((o) => {
+              if (!o) return false;
+              const oNum = String(o.orderNumber || "").replace(/^#/, "").trim().toLowerCase();
+              const oId = String(o.id || "").trim().toLowerCase();
+              return (cleanRemoteNum && oNum === cleanRemoteNum) || (cleanRemoteId && oId === cleanRemoteId);
+            });
+
+            if (idx !== -1) {
+              const current = localOrders[idx]!;
+              if (
+                current.status !== remote.status ||
+                current.cancelledBy !== remote.cancelledBy ||
+                current.cancelledAt !== remote.cancelledAt ||
+                current.cancellationReason !== remote.cancellationReason
+              ) {
+                localOrders[idx] = {
+                  ...current,
+                  status: remote.status,
+                  statusUpdatedAt: remote.statusUpdatedAt || Date.now(),
+                  cancelledBy: remote.cancelledBy || current.cancelledBy,
+                  cancelledAt: remote.cancelledAt || current.cancelledAt,
+                  cancellationReason: remote.cancellationReason || current.cancellationReason,
+                };
+                hasChanges = true;
+              }
+            } else {
+              localOrders.unshift(remote);
+              hasChanges = true;
+              if (remote.orderNumber) {
+                this.recordCustomerOrderId(remote.orderNumber);
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Also reconcile with authoritative Cloud Status Hub (multi-container / cross-device)
+      if (cloudStatuses && typeof cloudStatuses === "object") {
+        for (let i = 0; i < localOrders.length; i++) {
+          const loc = localOrders[i];
+          if (!loc) continue;
+          const cleanNum = String(loc.orderNumber || "").replace(/^#/, "").trim();
+          const cleanLower = cleanNum.toLowerCase();
+          const cleanUpper = cleanNum.toUpperCase();
+          const hub =
+            cloudStatuses[cleanNum] ||
+            cloudStatuses[cleanLower] ||
+            cloudStatuses[cleanUpper] ||
+            cloudStatuses[`BWC-${cleanUpper}`];
+
+          if (hub?.status && hub.status !== loc.status) {
+            localOrders[i] = {
+              ...loc,
+              status: hub.status,
+              statusUpdatedAt: hub.statusUpdatedAt || hub.updatedAt || Date.now(),
+              cancelledBy: hub.cancelledBy || loc.cancelledBy,
+              cancelledAt: hub.cancelledAt || loc.cancelledAt,
+              cancellationReason: hub.cancellationReason || loc.cancellationReason,
             };
             hasChanges = true;
-          }
-        } else {
-          localOrders.unshift(remote);
-          hasChanges = true;
-          if (remote.orderNumber) {
-            this.recordCustomerOrderId(remote.orderNumber);
           }
         }
       }
@@ -1431,7 +1624,7 @@ export const adminStore = {
         safeSetJSON(STORAGE_KEYS.ORDERS, localOrders);
         window.dispatchEvent(
           new CustomEvent("bwc_order_change", {
-            detail: { action: "customer_sync", count: remoteOrders.length },
+            detail: { action: "customer_sync", count: localOrders.length },
           }),
         );
       }
@@ -2537,9 +2730,15 @@ export const adminStore = {
     try {
       const isUserAdmin = this.isAuthenticated();
 
-      // For customer devices (non-admin), refresh customer's own recent orders first
+      // For customer devices (non-admin), refresh customer's own recent orders first and finish
       if (!isUserAdmin) {
         await this.refreshCustomerOrders(targetQuery);
+        return {
+          syncedOrders: 0,
+          updatedOrders: 0,
+          syncedReservations: 0,
+          updatedReservations: 0,
+        };
       }
 
       const localOrders = safeGetJSON<AdminOrder[]>(STORAGE_KEYS.ORDERS, []);

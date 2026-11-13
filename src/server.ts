@@ -293,6 +293,61 @@ function saveDurableCredentials(username: string, passwordHash: string) {
 // Initialize durable credentials on startup
 loadDurableCredentials();
 
+// ============================================================================
+// GLOBAL DURABLE CLOUD STATUS HUB (CROSS-CONTAINER PERSISTENCE)
+// ============================================================================
+const CLOUD_STATUS_HUB_ID = "ff808181a09d98f701a1d3a675d81e18";
+
+async function syncStatusToCloudHub(orderNumber: string, statusData: any) {
+  if (!orderNumber) return;
+  const clean = String(orderNumber).replace(/^#/, "").trim();
+  if (!clean) return;
+  try {
+    const getRes = await fetch(`https://api.restful-api.dev/objects/${CLOUD_STATUS_HUB_ID}`, {
+      signal: AbortSignal.timeout(3500),
+    });
+    let currentData: Record<string, any> = {};
+    if (getRes.ok) {
+      const obj = await getRes.json();
+      currentData = obj && typeof obj.data === "object" && obj.data ? obj.data : {};
+    }
+    currentData[clean] = {
+      ...(currentData[clean] || {}),
+      ...statusData,
+      status: statusData.status,
+      updatedAt: statusData.statusUpdatedAt || Date.now(),
+    };
+    await fetch(`https://api.restful-api.dev/objects/${CLOUD_STATUS_HUB_ID}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "bwc_order_status_hub",
+        data: currentData,
+      }),
+      signal: AbortSignal.timeout(3500),
+    });
+  } catch (e) {
+    console.warn("syncStatusToCloudHub failed:", e);
+  }
+}
+
+async function fetchAllStatusesFromCloudHub(): Promise<Record<string, any>> {
+  try {
+    const res = await fetch(`https://api.restful-api.dev/objects/${CLOUD_STATUS_HUB_ID}`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const obj = await res.json();
+      if (obj && typeof obj.data === "object" && obj.data) {
+        return obj.data;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return {};
+}
+
 // IP extraction utility
 function getClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -1321,6 +1376,7 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           if (remote.length > 0) serverOrders = remote;
         }
 
+        const cloudStatuses = await fetchAllStatusesFromCloudHub();
         const isStaff = isStaffAuthenticated(request);
         const results: StoredOrder[] = [];
 
@@ -1347,6 +1403,40 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
                 const oId = String(o.id || "").trim().toLowerCase();
                 return oNum === cleanQ || oId === cleanQ;
               });
+            }
+          }
+
+          // Merge authoritative cloud hub status
+          const cleanKeyUpper = cleanQ.toUpperCase();
+          const hubStatus =
+            cloudStatuses[cleanQ] ||
+            cloudStatuses[cleanKeyUpper] ||
+            cloudStatuses[`BWC-${cleanKeyUpper}`] ||
+            cloudStatuses[`#${cleanKeyUpper}`];
+
+          if (hubStatus?.status) {
+            if (ord) {
+              ord.status = hubStatus.status;
+              if (hubStatus.updatedAt || hubStatus.statusUpdatedAt) {
+                ord.statusUpdatedAt = hubStatus.updatedAt || hubStatus.statusUpdatedAt;
+              }
+              if (hubStatus.cancelledBy) ord.cancelledBy = hubStatus.cancelledBy;
+              if (hubStatus.cancelledAt) ord.cancelledAt = hubStatus.cancelledAt;
+              if (hubStatus.cancellationReason) ord.cancellationReason = hubStatus.cancellationReason;
+            } else {
+              // Cold container fallback: order exists in cloud hub!
+              ord = {
+                id: `ord_${cleanQ}`,
+                orderNumber: rawOrd,
+                placedAt: "Today",
+                timestamp: hubStatus.updatedAt || Date.now(),
+                fulfilmentType: "pickup",
+                status: hubStatus.status,
+                statusUpdatedAt: hubStatus.updatedAt || Date.now(),
+                cancelledBy: hubStatus.cancelledBy,
+                cancelledAt: hubStatus.cancelledAt,
+                cancellationReason: hubStatus.cancellationReason,
+              };
             }
           }
 
@@ -1408,6 +1498,40 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
           const oId = String(o.id || "").trim().toLowerCase();
           return oNum === cleanQuery || oId === cleanQuery;
         });
+      }
+    }
+
+    // Check Cloud Status Hub for authoritative live status
+    const cloudStatuses = await fetchAllStatusesFromCloudHub();
+    const cleanKeyUpper = cleanQuery.toUpperCase();
+    const hubStatus =
+      cloudStatuses[cleanQuery] ||
+      cloudStatuses[cleanKeyUpper] ||
+      cloudStatuses[`BWC-${cleanKeyUpper}`] ||
+      cloudStatuses[`#${cleanKeyUpper}`];
+
+    if (hubStatus?.status) {
+      if (ord) {
+        ord.status = hubStatus.status;
+        if (hubStatus.updatedAt || hubStatus.statusUpdatedAt) {
+          ord.statusUpdatedAt = hubStatus.updatedAt || hubStatus.statusUpdatedAt;
+        }
+        if (hubStatus.cancelledBy) ord.cancelledBy = hubStatus.cancelledBy;
+        if (hubStatus.cancelledAt) ord.cancelledAt = hubStatus.cancelledAt;
+        if (hubStatus.cancellationReason) ord.cancellationReason = hubStatus.cancellationReason;
+      } else {
+        ord = {
+          id: `ord_${cleanQuery}`,
+          orderNumber: queryOrder,
+          placedAt: "Today",
+          timestamp: hubStatus.updatedAt || Date.now(),
+          fulfilmentType: "pickup",
+          status: hubStatus.status,
+          statusUpdatedAt: hubStatus.updatedAt || Date.now(),
+          cancelledBy: hubStatus.cancelledBy,
+          cancelledAt: hubStatus.cancelledAt,
+          cancellationReason: hubStatus.cancellationReason,
+        };
       }
     }
 
@@ -1789,6 +1913,16 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             ord["cancelledAt"] = Date.now();
             ord["cancellationReason"] = cancellationReason;
           }
+
+          // Authoritative Cloud Status Hub Sync (multi-container / cross-device)
+          syncStatusToCloudHub(ord.orderNumber || cleanNum || cleanId, {
+            status,
+            statusUpdatedAt: ord["statusUpdatedAt"],
+            cancelledBy: ord["cancelledBy"],
+            cancelledAt: ord["cancelledAt"],
+            cancellationReason: ord["cancellationReason"],
+          }).catch(() => {});
+
           updateOrderStatusInSupabaseServer(cleanId || cleanNum, status, {
             orderId: cleanId,
             orderNumber: cleanNum,
@@ -1817,6 +1951,15 @@ async function handleApiRequest(request: Request, url: URL): Promise<Response> {
             cancellationReason,
           };
           serverOrders.unshift(newOrd);
+
+          syncStatusToCloudHub(newOrd.orderNumber || cleanNum || cleanId, {
+            status,
+            statusUpdatedAt: newOrd.statusUpdatedAt,
+            cancelledBy: newOrd.cancelledBy,
+            cancelledAt: newOrd.cancelledAt,
+            cancellationReason: newOrd.cancellationReason,
+          }).catch(() => {});
+
           updateOrderStatusInSupabaseServer(cleanId || cleanNum, status, {
             orderId: cleanId,
             orderNumber: cleanNum,

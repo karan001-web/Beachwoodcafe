@@ -290,7 +290,7 @@ export function OrderTrackerView({
       })
       .catch(() => {});
 
-    // Background sync poller every 4s for rapid cross-device responsiveness
+    // Background sync poller every 3s for rapid cross-device responsiveness
     const pollInterval = setInterval(async () => {
       try {
         await adminStore.syncWithServer();
@@ -298,30 +298,29 @@ export function OrderTrackerView({
         setRecentOrders(recents);
 
         const current = selectedOrderRef.current;
-        if (current) {
-          const isDeleted =
-            adminStore.isOrderDeleted(current.orderNumber) ||
-            adminStore.isOrderDeleted(current.id);
-          const refreshed =
-            !isDeleted &&
-            (adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id));
-
+        if (current?.orderNumber) {
+          const fresh = await adminStore.lookupOrder(current.orderNumber);
           if (
-            refreshed &&
-            (refreshed.status !== current.status ||
-              refreshed.cancelledBy !== current.cancelledBy ||
-              refreshed.cancelledAt !== current.cancelledAt)
+            fresh &&
+            (fresh.status !== current.status ||
+              fresh.cancelledBy !== current.cancelledBy ||
+              fresh.cancelledAt !== current.cancelledAt ||
+              fresh.cancellationReason !== current.cancellationReason)
           ) {
+            setSelectedOrder(fresh);
+            setRecentOrders(adminStore.getCustomerRecentOrders());
+          }
+        } else if (current) {
+          const refreshed = adminStore.findOrder(current.orderNumber) || adminStore.findOrder(current.id);
+          if (refreshed && refreshed.status !== current.status) {
             setSelectedOrder(refreshed);
-          } else if (!refreshed) {
-            setSelectedOrder(null);
-            setTargetOrderNumber(null);
+            setRecentOrders(adminStore.getCustomerRecentOrders());
           }
         }
       } catch {
         // silent catch
       }
-    }, 4000);
+    }, 3000);
 
     const handleOrderChange = (e?: any) => {
       const changedOrderNum = e?.detail?.orderNumber;
@@ -756,7 +755,11 @@ export function OrderTrackerView({
                           ? "bg-rose-500"
                           : ord.status === "ready"
                             ? "bg-emerald-500"
-                            : "bg-[#d99214]"
+                            : ord.status === "completed"
+                              ? "bg-emerald-600"
+                              : ord.status === "kitchen"
+                                ? "bg-blue-500 animate-pulse"
+                                : "bg-[#d99214]"
                       }`}
                     />
                   </button>
